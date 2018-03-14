@@ -2,11 +2,13 @@ package org.wordpress.android.ui.prefs;
 
 import android.app.Fragment;
 import android.app.FragmentManager;
+import android.content.Context;
 import android.os.Bundle;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
 import android.view.MenuItem;
 
+import org.apache.commons.text.StringEscapeUtils;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 import org.wordpress.android.R;
@@ -16,9 +18,10 @@ import org.wordpress.android.fluxc.model.SiteModel;
 import org.wordpress.android.fluxc.store.AccountStore;
 import org.wordpress.android.fluxc.store.SiteStore;
 import org.wordpress.android.fluxc.store.SiteStore.OnSiteDeleted;
+import org.wordpress.android.fluxc.store.SiteStore.OnSiteRemoved;
 import org.wordpress.android.networking.ConnectionChangeReceiver;
+import org.wordpress.android.util.LocaleManager;
 import org.wordpress.android.util.SiteUtils;
-import org.wordpress.android.util.StringUtils;
 import org.wordpress.android.util.ToastUtils;
 
 import javax.inject.Inject;
@@ -29,27 +32,31 @@ import de.greenrobot.event.EventBus;
  * Activity for configuring blog specific settings.
  */
 public class BlogPreferencesActivity extends AppCompatActivity {
-    public static final int RESULT_BLOG_REMOVED = RESULT_FIRST_USER;
-
     private static final String KEY_SETTINGS_FRAGMENT = "settings-fragment";
+
+    private SiteModel mSite;
 
     @Inject AccountStore mAccountStore;
     @Inject SiteStore mSiteStore;
     @Inject Dispatcher mDispatcher;
 
     @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(LocaleManager.setLocale(newBase));
+    }
+
+    @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         ((WordPress) getApplication()).component().inject(this);
 
-        final SiteModel site;
         if (savedInstanceState == null) {
-            site = (SiteModel) getIntent().getSerializableExtra(WordPress.SITE);
+            mSite = (SiteModel) getIntent().getSerializableExtra(WordPress.SITE);
         } else {
-            site = (SiteModel) savedInstanceState.getSerializable(WordPress.SITE);
+            mSite = (SiteModel) savedInstanceState.getSerializable(WordPress.SITE);
         }
 
-        if (site == null) {
+        if (mSite == null) {
             ToastUtils.showToast(this, R.string.blog_not_found, ToastUtils.Duration.SHORT);
             finish();
             return;
@@ -59,7 +66,7 @@ public class BlogPreferencesActivity extends AppCompatActivity {
         if (actionBar != null) {
             actionBar.setHomeButtonEnabled(true);
             actionBar.setDisplayHomeAsUpEnabled(true);
-            actionBar.setTitle(StringUtils.unescapeHTML(SiteUtils.getSiteNameOrHomeURL(site)));
+            actionBar.setTitle(StringEscapeUtils.unescapeHtml4(SiteUtils.getSiteNameOrHomeURL(mSite)));
         }
 
         FragmentManager fragmentManager = getFragmentManager();
@@ -69,8 +76,8 @@ public class BlogPreferencesActivity extends AppCompatActivity {
             siteSettingsFragment = new SiteSettingsFragment();
             siteSettingsFragment.setArguments(getIntent().getExtras());
             fragmentManager.beginTransaction()
-                    .replace(android.R.id.content, siteSettingsFragment, KEY_SETTINGS_FRAGMENT)
-                    .commit();
+                           .replace(android.R.id.content, siteSettingsFragment, KEY_SETTINGS_FRAGMENT)
+                           .commit();
         }
     }
 
@@ -86,6 +93,12 @@ public class BlogPreferencesActivity extends AppCompatActivity {
         mDispatcher.unregister(this);
         EventBus.getDefault().unregister(this);
         super.onStop();
+    }
+
+    @Override
+    public void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putSerializable(WordPress.SITE, mSite);
     }
 
     @Override
@@ -109,9 +122,18 @@ public class BlogPreferencesActivity extends AppCompatActivity {
             siteSettingsFragment.setEditingEnabled(event.isConnected());
 
             // TODO: add this back when delete blog is back
-            //https://github.com/wordpress-mobile/WordPress-Android/commit/6a90e3fe46e24ee40abdc4a7f8f0db06f157900c
+            // https://github.com/wordpress-mobile/WordPress-Android/commit/6a90e3fe46e24ee40abdc4a7f8f0db06f157900c
             // Checks for stats widgets that were synched with a blog that could be gone now.
-            //            StatsWidgetProvider.updateWidgetsOnLogout(this);
+            // StatsWidgetProvider.updateWidgetsOnLogout(this);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onSiteRemoved(OnSiteRemoved event) {
+        if (!event.isError()) {
+            setResult(SiteSettingsFragment.RESULT_BLOG_REMOVED);
+            finish();
         }
     }
 
@@ -126,7 +148,7 @@ public class BlogPreferencesActivity extends AppCompatActivity {
             }
 
             siteSettingsFragment.handleSiteDeleted();
-            setResult(RESULT_BLOG_REMOVED);
+            setResult(SiteSettingsFragment.RESULT_BLOG_REMOVED);
             finish();
         }
     }

@@ -3,10 +3,18 @@ package org.wordpress.android.util;
 import android.text.TextUtils;
 
 import org.wordpress.android.fluxc.model.SiteModel;
+import org.wordpress.android.fluxc.store.SiteStore;
+import org.wordpress.android.util.helpers.Version;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class SiteUtils {
     public static String getSiteNameOrHomeURL(SiteModel site) {
-        String siteName = getSiteName(site);
+        String siteName = site.getName();
+        if (siteName == null) {
+            return "";
+        }
         if (siteName.trim().length() == 0) {
             siteName = getHomeURLOrHostName(site);
         }
@@ -20,10 +28,6 @@ public class SiteUtils {
             return UrlUtils.getHost(site.getXmlRpcUrl());
         }
         return homeURL;
-    }
-
-    public static String getSiteName(SiteModel site) {
-        return StringUtils.unescapeHTML(site.getName());
     }
 
     /**
@@ -43,5 +47,44 @@ public class SiteUtils {
         } else {
             return GravatarUtils.blavatarFromUrl(site.getUrl(), size);
         }
+    }
+
+    public static ArrayList<Integer> getCurrentSiteIds(SiteStore siteStore, boolean selfhostedOnly) {
+        ArrayList<Integer> siteIDs = new ArrayList<>();
+        List<SiteModel> sites = selfhostedOnly ? siteStore.getSitesAccessedViaXMLRPC() : siteStore.getSites();
+        for (SiteModel site : sites) {
+            siteIDs.add(site.getId());
+        }
+
+        return siteIDs;
+    }
+
+    /**
+     * Checks if site Jetpack version is higher than limit version
+     *
+     * @param site
+     * @param limitVersion minimal acceptable Jetpack version
+     * @return
+     */
+    public static boolean checkMinimalJetpackVersion(SiteModel site, String limitVersion) {
+        String jetpackVersion = site.getJetpackVersion();
+        if (site.isUsingWpComRestApi() && site.isJetpackConnected() && !TextUtils.isEmpty(jetpackVersion)) {
+            try {
+                // strip any trailing "-beta" or "-alpha" from the version
+                int index = jetpackVersion.lastIndexOf("-");
+                if (index > 0) {
+                    jetpackVersion = jetpackVersion.substring(0, index);
+                }
+                Version siteJetpackVersion = new Version(jetpackVersion);
+                Version minVersion = new Version(limitVersion);
+                return siteJetpackVersion.compareTo(minVersion) >= 0;
+            } catch (IllegalArgumentException e) {
+                String errorStr = "Invalid site jetpack version " + jetpackVersion + ", expected " + limitVersion;
+                AppLog.e(AppLog.T.UTILS, errorStr, e);
+                CrashlyticsUtils.logException(e, AppLog.T.UTILS, errorStr);
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -20,13 +20,16 @@
             android:layout_marginLeft="16dp"
             android:layout_marginRight="16dp"
             android:orientation="vertical"
-            android:gravity="center">
+            android:gravity="center"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp">
 
             <ImageView
                 android:id="@+id/nux_fragment_icon"
                 android:layout_width="50dp"
                 android:layout_height="50dp"
                 app:srcCompat="@drawable/ic_my_sites_white_50dp"
+                android:importantForAccessibility="no"
                 android:layout_marginTop="@dimen/margin_medium"/>
 
             <org.wordpress.android.widgets.WPTextView

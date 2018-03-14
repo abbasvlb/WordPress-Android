@@ -9,7 +9,7 @@ import android.view.DragEvent;
 
 import com.android.volley.toolbox.ImageLoader;
 
-import org.wordpress.android.editor.EditorFragment.IllegalEditorStateException;
+import org.wordpress.android.editor.EditorFragment.EditorFragmentNotAddedException;
 import org.wordpress.android.util.helpers.MediaFile;
 import org.wordpress.android.util.helpers.MediaGallery;
 
@@ -19,8 +19,8 @@ import java.util.HashMap;
 public abstract class EditorFragmentAbstract extends Fragment {
     public abstract void setTitle(CharSequence text);
     public abstract void setContent(CharSequence text);
-    public abstract CharSequence getTitle() throws IllegalEditorStateException;
-    public abstract CharSequence getContent() throws IllegalEditorStateException;
+    public abstract CharSequence getTitle() throws EditorFragmentNotAddedException;
+    public abstract CharSequence getContent() throws EditorFragmentNotAddedException;
     public abstract void appendMediaFile(MediaFile mediaFile, String imageUrl, ImageLoader imageLoader);
     public abstract void appendGallery(MediaGallery mediaGallery);
     public abstract void setUrlForVideoPressId(String videoPressId, String url, String posterUrl);
@@ -28,6 +28,7 @@ public abstract class EditorFragmentAbstract extends Fragment {
     public abstract boolean isActionInProgress();
     public abstract boolean hasFailedMediaUploads();
     public abstract void removeAllFailedMediaUploads();
+    public abstract void removeMedia(String mediaId);
     public abstract void setTitlePlaceholder(CharSequence text);
     public abstract void setContentPlaceholder(CharSequence text);
 
@@ -73,7 +74,7 @@ public abstract class EditorFragmentAbstract extends Fragment {
     protected static final String EXTRA_MAX_WIDTH = "maxWidth";
 
     private static final String FEATURED_IMAGE_SUPPORT_KEY = "featured-image-supported";
-    private static final String FEATURED_IMAGE_WIDTH_KEY   = "featured-image-width";
+    private static final String FEATURED_IMAGE_WIDTH_KEY = "featured-image-width";
 
     protected EditorFragmentListener mEditorFragmentListener;
     protected EditorDragAndDropListener mEditorDragAndDropListener;
@@ -157,6 +158,15 @@ public abstract class EditorFragmentAbstract extends Fragment {
         // Not unused in the new editor
     }
 
+    public static MediaType getEditorMimeType(MediaFile mediaFile) {
+        if (mediaFile == null) {
+            // default to image
+            return MediaType.IMAGE;
+        }
+        return mediaFile.isVideo() ? MediaType.VIDEO
+                : MediaType.IMAGE;
+    }
+
     /**
      * Callbacks used to communicate with the parent Activity
      */
@@ -164,8 +174,10 @@ public abstract class EditorFragmentAbstract extends Fragment {
         void onEditorFragmentInitialized();
         void onSettingsClicked();
         void onAddMediaClicked();
-        void onMediaRetryClicked(String mediaId);
-        void onMediaUploadCancelClicked(String mediaId, boolean delete);
+        boolean onMediaRetryClicked(String mediaId);
+        void onMediaUploadCancelClicked(String mediaId);
+        void onMediaDeleted(String mediaId);
+        void onUndoMediaCheck(String undoedContent);
         void onFeaturedImageChanged(long mediaId);
         void onVideoPressInfoRequested(String videoId);
         String onAuthHeaderRequested(String url);
@@ -183,18 +195,32 @@ public abstract class EditorFragmentAbstract extends Fragment {
     }
 
     public enum TrackableEvent {
-        HTML_BUTTON_TAPPED,
-        UNLINK_BUTTON_TAPPED,
-        LINK_BUTTON_TAPPED,
-        MEDIA_BUTTON_TAPPED,
-        IMAGE_EDITED,
-        BOLD_BUTTON_TAPPED,
-        ITALIC_BUTTON_TAPPED,
-        OL_BUTTON_TAPPED,
-        UL_BUTTON_TAPPED,
         BLOCKQUOTE_BUTTON_TAPPED,
+        BOLD_BUTTON_TAPPED,
+        ELLIPSIS_COLLAPSE_BUTTON_TAPPED,
+        ELLIPSIS_EXPAND_BUTTON_TAPPED,
+        HEADING_BUTTON_TAPPED,
+        HEADING_1_BUTTON_TAPPED,
+        HEADING_2_BUTTON_TAPPED,
+        HEADING_3_BUTTON_TAPPED,
+        HEADING_4_BUTTON_TAPPED,
+        HEADING_5_BUTTON_TAPPED,
+        HEADING_6_BUTTON_TAPPED,
+        HORIZONTAL_RULE_BUTTON_TAPPED,
+        HTML_BUTTON_TAPPED,
+        IMAGE_EDITED,
+        ITALIC_BUTTON_TAPPED,
+        LINK_ADDED_BUTTON_TAPPED,
+        LINK_REMOVED_BUTTON_TAPPED,
+        LIST_BUTTON_TAPPED,
+        LIST_ORDERED_BUTTON_TAPPED,
+        LIST_UNORDERED_BUTTON_TAPPED,
+        MEDIA_BUTTON_TAPPED,
+        NEXT_PAGE_BUTTON_TAPPED,
+        PARAGRAPH_BUTTON_TAPPED,
+        PREFORMAT_BUTTON_TAPPED,
+        READ_MORE_BUTTON_TAPPED,
         STRIKETHROUGH_BUTTON_TAPPED,
-        UNDERLINE_BUTTON_TAPPED,
-        MORE_BUTTON_TAPPED
+        UNDERLINE_BUTTON_TAPPED
     }
 }

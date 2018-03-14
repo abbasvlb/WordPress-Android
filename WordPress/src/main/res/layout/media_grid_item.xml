@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:padding="@dimen/margin_extra_small">
 
-    <org.wordpress.android.ui.FadeInNetworkImageView
+    <org.wordpress.android.widgets.WPNetworkImageView
         android:id="@+id/media_grid_item_image"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -22,6 +23,7 @@
         tools:visibility="visible">
 
         <LinearLayout
+            tools:ignore="UselessParent"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_centerInParent="true"
@@ -29,11 +31,11 @@
 
             <ImageView
                 android:id="@+id/media_grid_item_filetype_image"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
                 android:layout_gravity="center_horizontal"
                 android:tint="@color/grey_dark"
-                tools:src="@drawable/media_document" />
+                tools:src="@drawable/ic_gridicons_page" />
 
             <org.wordpress.android.widgets.WPTextView
                 android:id="@+id/media_grid_item_filetype"
@@ -43,7 +45,7 @@
                 android:layout_marginTop="@dimen/margin_medium"
                 android:textAllCaps="true"
                 android:textColor="@color/grey_dark"
-                android:textSize="@dimen/text_sz_medium"
+                android:textSize="@dimen/text_sz_small"
                 android:textStyle="bold"
                 tools:text="PDF" />
 
@@ -56,61 +58,121 @@
                 android:gravity="center_horizontal"
                 android:singleLine="true"
                 android:textColor="@color/grey_dark"
-                android:textSize="@dimen/text_sz_small"
+                android:textSize="@dimen/text_sz_extra_small"
                 tools:text="filename" />
         </LinearLayout>
 
     </RelativeLayout>
 
-    <RelativeLayout
+    <FrameLayout
         android:id="@+id/media_grid_item_upload_state_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@color/grey_dark_translucent_50"
+        android:orientation="vertical"
         android:visibility="gone"
         tools:visibility="visible">
 
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_centerInParent="true"
-            android:orientation="vertical">
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            tools:ignore="UselessParent">
+
+            <LinearLayout
+                android:id="@+id/container_retry_delete"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/margin_medium"
+                android:orientation="horizontal"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <ImageView
+                    android:id="@+id/image_retry"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:layout_marginLeft="@dimen/margin_medium"
+                    android:layout_marginRight="@dimen/margin_medium"
+                    android:background="@drawable/media_icon_circle"
+                    android:padding="10dp"
+                    app:srcCompat="@drawable/media_retry_image"
+                    android:layout_marginStart="@dimen/margin_medium"
+                    android:layout_marginEnd="@dimen/margin_medium"/>
+
+                <ImageView
+                    android:id="@+id/image_trash"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:layout_marginLeft="@dimen/margin_medium"
+                    android:layout_marginRight="@dimen/margin_medium"
+                    android:background="@drawable/media_icon_circle"
+                    android:padding="10dp"
+                    app:srcCompat="@drawable/ic_trash_white_24dp"
+                    android:layout_marginEnd="@dimen/margin_medium"
+                    android:layout_marginStart="@dimen/margin_medium"/>
+            </LinearLayout>
 
             <ProgressBar
                 android:id="@+id/media_grid_item_upload_progress"
                 android:layout_width="@dimen/media_grid_progress_height"
                 android:layout_height="@dimen/media_grid_progress_height"
                 android:layout_gravity="center_horizontal"
-                android:layout_marginBottom="@dimen/margin_small" />
+                android:layout_marginBottom="@dimen/margin_small"
+                android:visibility="gone"
+                tools:visibility="visible" />
 
             <org.wordpress.android.widgets.WPTextView
                 android:id="@+id/media_grid_item_upload_state"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:shadowColor="@color/grey_dark"
-                android:shadowDx="2"
-                android:shadowDy="2"
-                android:shadowRadius="2"
-                android:textAllCaps="true"
+                android:layout_gravity="center"
                 android:textColor="@color/white"
-                android:textSize="@dimen/text_sz_large"
+                android:textSize="@dimen/text_sz_medium"
                 android:textStyle="bold"
-                tools:text="@string/upload_failed" />
-        </LinearLayout>
-    </RelativeLayout>
+                tools:text="@string/media_upload_state_failed" />
 
-    <org.wordpress.android.widgets.WPTextView
-        android:id="@+id/text_selection_count"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <FrameLayout
+        android:id="@+id/frame_selection_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:padding="8dp">
+
+        <TextView
+            android:id="@+id/text_selection_count"
+            android:layout_width="@dimen/media_selection_dot"
+            android:layout_height="@dimen/media_selection_dot"
+            android:background="@drawable/photo_picker_circle_selector"
+            android:elevation="4dp"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:textColor="@color/white"
+            android:textSize="@dimen/text_sz_small"
+            tools:text="5"
+            tools:ignore="UnusedAttribute"/>
+    </FrameLayout>
+
+    <FrameLayout
+        android:id="@+id/frame_video_overlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_centerInParent="true"
-        android:background="@drawable/shape_oval_blue"
-        android:gravity="center"
-        android:textColor="@color/white"
-        android:textSize="@dimen/text_sz_large"
         android:visibility="gone"
-        tools:text="5"
-        tools:visibility="visible" />
+        tools:visibility="visible">
+
+        <ImageView
+            android:id="@+id/image_video_overlay"
+            android:layout_width="@dimen/photo_picker_preview_icon"
+            android:layout_height="@dimen/photo_picker_preview_icon"
+            android:padding="@dimen/margin_extra_small"
+            app:srcCompat="@drawable/ic_play_video" />
+
+    </FrameLayout>
 
 </RelativeLayout>

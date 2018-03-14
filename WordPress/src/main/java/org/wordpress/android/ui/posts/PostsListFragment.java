@@ -3,6 +3,7 @@ package org.wordpress.android.ui.posts;
 import android.app.Activity;
 import android.app.Fragment;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
@@ -10,8 +11,11 @@ import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.design.widget.Snackbar;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.widget.LinearLayoutManager;
+import android.support.v7.widget.LinearSmoothScroller;
 import android.support.v7.widget.RecyclerView;
+import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -28,8 +32,8 @@ import org.wordpress.android.fluxc.generated.PostActionBuilder;
 import org.wordpress.android.fluxc.model.MediaModel;
 import org.wordpress.android.fluxc.model.PostModel;
 import org.wordpress.android.fluxc.model.SiteModel;
-import org.wordpress.android.fluxc.model.post.PostStatus;
 import org.wordpress.android.fluxc.store.MediaStore;
+import org.wordpress.android.fluxc.store.MediaStore.OnMediaUploaded;
 import org.wordpress.android.fluxc.store.PostStore;
 import org.wordpress.android.fluxc.store.PostStore.FetchPostsPayload;
 import org.wordpress.android.fluxc.store.PostStore.OnPostChanged;
@@ -43,11 +47,14 @@ import org.wordpress.android.ui.EmptyViewMessageType;
 import org.wordpress.android.ui.notifications.utils.PendingDraftsNotificationsUtils;
 import org.wordpress.android.ui.posts.adapters.PostsListAdapter;
 import org.wordpress.android.ui.posts.adapters.PostsListAdapter.LoadMode;
-import org.wordpress.android.ui.posts.services.PostEvents;
-import org.wordpress.android.ui.posts.services.PostUploadService;
+import org.wordpress.android.ui.uploads.PostEvents;
+import org.wordpress.android.ui.uploads.UploadService;
+import org.wordpress.android.ui.uploads.UploadUtils;
+import org.wordpress.android.ui.uploads.VideoOptimizer;
 import org.wordpress.android.util.AniUtils;
 import org.wordpress.android.util.NetworkUtils;
 import org.wordpress.android.util.ToastUtils;
+import org.wordpress.android.util.helpers.RecyclerViewScrollPositionManager;
 import org.wordpress.android.util.helpers.SwipeToRefreshHelper;
 import org.wordpress.android.util.helpers.SwipeToRefreshHelper.RefreshListener;
 import org.wordpress.android.util.widgets.CustomSwipeRefreshLayout;
@@ -56,19 +63,23 @@ import org.wordpress.android.widgets.RecyclerItemDecoration;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import javax.inject.Inject;
 
 import de.greenrobot.event.EventBus;
+
+import static org.wordpress.android.util.WPSwipeToRefreshHelper.buildSwipeToRefreshHelper;
 
 public class PostsListFragment extends Fragment
         implements PostsListAdapter.OnPostsLoadedListener,
         PostsListAdapter.OnLoadMoreListener,
         PostsListAdapter.OnPostSelectedListener,
         PostsListAdapter.OnPostButtonClickListener {
-
     public static final int POSTS_REQUEST_COUNT = 20;
+    public static final String TAG = "posts_list_fragment_tag";
 
+    private final RecyclerViewScrollPositionManager mRVScrollPositionSaver = new RecyclerViewScrollPositionManager();
     private SwipeToRefreshHelper mSwipeToRefreshHelper;
     private PostsListAdapter mPostsListAdapter;
     private View mFabView;
@@ -81,6 +92,7 @@ public class PostsListFragment extends Fragment
 
     private boolean mCanLoadMorePosts = true;
     private boolean mIsPage;
+    private PostModel mTargetPost;
     private boolean mIsFetchingPosts;
     private boolean mShouldCancelPendingDraftNotification = false;
     private int mPostIdForPostToBeDeleted = 0;
@@ -93,10 +105,14 @@ public class PostsListFragment extends Fragment
     @Inject PostStore mPostStore;
     @Inject Dispatcher mDispatcher;
 
-    public static PostsListFragment newInstance(SiteModel site) {
+    public static PostsListFragment newInstance(SiteModel site, boolean isPage, @Nullable PostModel targetPost) {
         PostsListFragment fragment = new PostsListFragment();
         Bundle bundle = new Bundle();
         bundle.putSerializable(WordPress.SITE, site);
+        bundle.putBoolean(PostsListActivity.EXTRA_VIEW_PAGES, isPage);
+        if (targetPost != null) {
+            bundle.putInt(PostsListActivity.EXTRA_TARGET_POST_LOCAL_ID, targetPost.getId());
+        }
         fragment.setArguments(bundle);
         return fragment;
     }
@@ -106,17 +122,14 @@ public class PostsListFragment extends Fragment
         super.onCreate(savedInstanceState);
         ((WordPress) getActivity().getApplication()).component().inject(this);
 
-        EventBus.getDefault().register(this);
-        mDispatcher.register(this);
+        if (savedInstanceState != null) {
+            mRVScrollPositionSaver.onRestoreInstanceState(savedInstanceState);
+        }
 
         updateSiteOrFinishActivity(savedInstanceState);
 
-        if (isAdded()) {
-            Bundle extras = getActivity().getIntent().getExtras();
-            if (extras != null) {
-                mIsPage = extras.getBoolean(PostsListActivity.EXTRA_VIEW_PAGES);
-            }
-        }
+        EventBus.getDefault().register(this);
+        mDispatcher.register(this);
     }
 
     @Override
@@ -131,16 +144,24 @@ public class PostsListFragment extends Fragment
         if (savedInstanceState == null) {
             if (getArguments() != null) {
                 mSite = (SiteModel) getArguments().getSerializable(WordPress.SITE);
+                mIsPage = getArguments().getBoolean(PostsListActivity.EXTRA_VIEW_PAGES);
+                mTargetPost = mPostStore.getPostByLocalPostId(
+                        getArguments().getInt(PostsListActivity.EXTRA_TARGET_POST_LOCAL_ID));
             } else {
                 mSite = (SiteModel) getActivity().getIntent().getSerializableExtra(WordPress.SITE);
+                mIsPage = getActivity().getIntent().getBooleanExtra(PostsListActivity.EXTRA_VIEW_PAGES, false);
+                mTargetPost = mPostStore.getPostByLocalPostId(
+                        getActivity().getIntent().getIntExtra(PostsListActivity.EXTRA_TARGET_POST_LOCAL_ID, 0));
             }
         } else {
             mSite = (SiteModel) savedInstanceState.getSerializable(WordPress.SITE);
+            mIsPage = savedInstanceState.getBoolean(PostsListActivity.EXTRA_VIEW_PAGES);
+            mTargetPost = mPostStore.getPostByLocalPostId(
+                    savedInstanceState.getInt(PostsListActivity.EXTRA_TARGET_POST_LOCAL_ID));
         }
 
         if (mSite == null) {
-            ToastUtils.showToast(getActivity(), R.string.blog_not_found,
-                    ToastUtils.Duration.SHORT);
+            ToastUtils.showToast(getActivity(), R.string.blog_not_found, ToastUtils.Duration.SHORT);
             getActivity().finish();
         }
     }
@@ -180,7 +201,16 @@ public class PostsListFragment extends Fragment
         });
 
         if (savedInstanceState == null) {
-            requestPosts(false);
+            if (UploadService.hasPendingOrInProgressPostUploads()) {
+                // if there are some in-progress uploads, we'd better just load the DB Posts and reflect upload
+                // changes there. Otherwise, a duplicate-post situation can happen when:
+                // a FETCH_POSTS completing *after* the post has been uploaded to the server but *before*
+                // the PUSH_POST action completes and a PUSHED_POST is emitted.
+                loadPosts(LoadMode.IF_CHANGED);
+            } else {
+                // refresh normally
+                requestPosts(false);
+            }
         }
 
         initSwipeToRefreshHelper(view);
@@ -192,80 +222,31 @@ public class PostsListFragment extends Fragment
         if (resultCode != Activity.RESULT_OK || data == null || !isAdded()) {
             return;
         }
-        boolean hasChanges = data.getBooleanExtra(EditPostActivity.EXTRA_HAS_CHANGES, false);
-        if (!hasChanges) {
-            // if there are no changes, we don't need to do anything
+
+        final PostModel post = mPostStore.
+                                                 getPostByLocalPostId(
+                                                         data.getIntExtra(EditPostActivity.EXTRA_POST_LOCAL_ID, 0));
+
+        if ((post == null)
+                && !data.getBooleanExtra(EditPostActivity.EXTRA_IS_DISCARDABLE, false)) {
+            ToastUtils.showToast(getActivity(), R.string.post_not_found, ToastUtils.Duration.LONG);
             return;
         }
 
-        boolean savedLocally = data.getBooleanExtra(EditPostActivity.EXTRA_SAVED_AS_LOCAL_DRAFT, false);
-        if (savedLocally && !NetworkUtils.isNetworkAvailable(getActivity())) {
-            // The network is not available, we can't do anything
-            ToastUtils.showToast(getActivity(), R.string.error_publish_no_network,
-                    ToastUtils.Duration.SHORT);
-            return;
-        }
-
-        final PostModel post = (PostModel)data.getSerializableExtra(EditPostActivity.EXTRA_POST);
-        boolean hasUnfinishedMedia = data.getBooleanExtra(EditPostActivity.EXTRA_HAS_UNFINISHED_MEDIA, false);
-        if (hasUnfinishedMedia) {
-            showSnackbar(R.string.editor_post_saved_locally_unfinished_media, R.string.button_edit,
-                    new View.OnClickListener() {
-                        @Override
-                        public void onClick(View v) {
-                            ActivityLauncher.editPostOrPageForResult(getActivity(), mSite, post);
-                        }
-                    });
-            return;
-        }
-
-        View.OnClickListener publishPostListener = new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                publishPost(post);
-            }
-        };
-        boolean isScheduledPost = post != null && PostStatus.fromPost(post) == PostStatus.SCHEDULED;
-        if (isScheduledPost) {
-            // if it's a scheduled post, we only want to show a "Sync" button if it's locally saved
-            if (savedLocally) {
-                showSnackbar(R.string.editor_post_saved_locally, R.string.button_sync, publishPostListener);
-            }
-            return;
-        }
-
-        boolean isPublished = post != null && PostStatus.fromPost(post) == PostStatus.PUBLISHED;
-        if (isPublished) {
-            // if it's a published post, we only want to show a "Sync" button if it's locally saved
-            if (savedLocally) {
-                showSnackbar(R.string.editor_post_saved_locally, R.string.button_sync, publishPostListener);
-            }
-            return;
-        }
-
-        boolean isDraft = post != null && PostStatus.fromPost(post) == PostStatus.DRAFT;
-        if (isDraft) {
-            if (PostUtils.isPublishable(post)) {
-                int message =  savedLocally ? R.string.editor_draft_saved_locally : R.string.editor_draft_saved_online;
-                showSnackbar(message, R.string.button_publish, publishPostListener);
-            } else {
-                if (savedLocally) {
-                    ToastUtils.showToast(getActivity(), R.string.editor_draft_saved_locally);
-                } else {
-                    ToastUtils.showToast(getActivity(), R.string.editor_draft_saved_online);
-                }
-            }
-        }
-    }
-
-    private void showSnackbar(int messageRes, int buttonTitleRes, View.OnClickListener onClickListener) {
-        Snackbar.make(getActivity().findViewById(R.id.coordinator), messageRes, Snackbar.LENGTH_LONG)
-                .setAction(buttonTitleRes, onClickListener).show();
+        UploadUtils.handleEditPostResultSnackbars(getActivity(),
+                                                  getActivity().findViewById(R.id.coordinator), resultCode, data, post,
+                                                  mSite,
+                                                  new View.OnClickListener() {
+                                                      @Override
+                                                      public void onClick(View v) {
+                                                          UploadUtils
+                                                                  .publishPost(getActivity(), post, mSite, mDispatcher);
+                                                      }
+                                                  });
     }
 
     private void initSwipeToRefreshHelper(View view) {
-        mSwipeToRefreshHelper = new SwipeToRefreshHelper(
-                getActivity(),
+        mSwipeToRefreshHelper = buildSwipeToRefreshHelper(
                 (CustomSwipeRefreshLayout) view.findViewById(R.id.ptr_layout),
                 new RefreshListener() {
                     @Override
@@ -280,7 +261,8 @@ public class PostsListFragment extends Fragment
                         }
                         requestPosts(false);
                     }
-                });
+                }
+                                                         );
     }
 
     private @Nullable PostsListAdapter getPostListAdapter() {
@@ -306,8 +288,10 @@ public class PostsListFragment extends Fragment
     }
 
     private void newPost() {
-        if (!isAdded()) return;
-        ActivityLauncher.addNewPostOrPageForResult(getActivity(), mSite, mIsPage);
+        if (!isAdded()) {
+            return;
+        }
+        ActivityLauncher.addNewPostOrPageForResult(getActivity(), mSite, mIsPage, false);
     }
 
     public void onResume() {
@@ -317,7 +301,7 @@ public class PostsListFragment extends Fragment
             mRecyclerView.setAdapter(getPostListAdapter());
         }
 
-        // always (re)load when resumed to reflect changes made elsewhere
+        // always (re) load when resumed to reflect changes made elsewhere
         loadPosts(LoadMode.IF_CHANGED);
 
         // scale in the fab after a brief delay if it's not already showing
@@ -383,11 +367,21 @@ public class PostsListFragment extends Fragment
     }
 
     /*
-     * upload start, reload so correct status on uploading post appears
+     * Upload started, reload so correct status on uploading post appears
      */
     @SuppressWarnings("unused")
     public void onEventMainThread(PostEvents.PostUploadStarted event) {
-        if (isAdded() && mSite.getId() == event.mLocalBlogId) {
+        if (isAdded() && mSite != null && mSite.getId() == event.mLocalBlogId) {
+            loadPosts(LoadMode.FORCED);
+        }
+    }
+
+    /*
+    * Upload cancelled (probably due to failed media), reload so correct status on uploading post appears
+    */
+    @SuppressWarnings("unused")
+    public void onEventMainThread(PostEvents.PostUploadCanceled event) {
+        if (isAdded() && mSite != null && mSite.getId() == event.localSiteId) {
             loadPosts(LoadMode.FORCED);
         }
     }
@@ -405,8 +399,8 @@ public class PostsListFragment extends Fragment
                 stringId = R.string.no_network_message;
                 break;
             case PERMISSION_ERROR:
-                stringId = mIsPage ? R.string.error_refresh_unauthorized_pages :
-                        R.string.error_refresh_unauthorized_posts;
+                stringId = mIsPage ? R.string.error_refresh_unauthorized_pages
+                        : R.string.error_refresh_unauthorized_posts;
                 break;
             case GENERIC_ERROR:
                 stringId = mIsPage ? R.string.error_refresh_pages : R.string.error_refresh_posts;
@@ -416,8 +410,8 @@ public class PostsListFragment extends Fragment
         }
 
         mEmptyViewTitle.setText(getText(stringId));
-        mEmptyViewImage.setVisibility(emptyViewMessageType == EmptyViewMessageType.NO_CONTENT ? View.VISIBLE :
-                View.GONE);
+        mEmptyViewImage.setVisibility(emptyViewMessageType == EmptyViewMessageType.NO_CONTENT ? View.VISIBLE
+                                              : View.GONE);
         mEmptyView.setVisibility(isPostAdapterEmpty() ? View.VISIBLE : View.GONE);
     }
 
@@ -455,6 +449,37 @@ public class PostsListFragment extends Fragment
             }
         } else if (postCount > 0) {
             hideEmptyView();
+            mRVScrollPositionSaver.restoreScrollOffset(mRecyclerView);
+        }
+
+        // If the activity was given a target post, and this is the first time posts are loaded, scroll to that post
+        if (mTargetPost != null) {
+            if (mPostsListAdapter != null) {
+                final int position = mPostsListAdapter.getPositionForPost(mTargetPost);
+                if (position > -1) {
+                    RecyclerView.SmoothScroller smoothScroller = new LinearSmoothScroller(getActivity()) {
+                        private static final int SCROLL_OFFSET_DP = 23;
+
+                        @Override
+                        protected int getVerticalSnapPreference() {
+                            return LinearSmoothScroller.SNAP_TO_START;
+                        }
+
+                        @Override
+                        public int calculateDtToFit(int viewStart, int viewEnd, int boxStart, int boxEnd,
+                                                    int snapPreference) {
+                            // Assume SNAP_TO_START, and offset the scroll, so the bottom of the above post shows
+                            int offsetPx = (int) TypedValue.applyDimension(
+                                    TypedValue.COMPLEX_UNIT_DIP, SCROLL_OFFSET_DP, getResources().getDisplayMetrics());
+                            return boxStart - viewStart + offsetPx;
+                        }
+                    };
+
+                    smoothScroller.setTargetPosition(position);
+                    mRecyclerView.getLayoutManager().startSmoothScroll(smoothScroller);
+                }
+            }
+            mTargetPost = null;
         }
     }
 
@@ -480,64 +505,103 @@ public class PostsListFragment extends Fragment
      * called by the adapter when the user clicks the edit/view/stats/trash button for a post
      */
     @Override
-    public void onPostButtonClicked(int buttonType, PostModel post) {
-        if (!isAdded()) return;
+    public void onPostButtonClicked(int buttonType, PostModel postClicked) {
+        if (!isAdded()) {
+            return;
+        }
+
+        // Get the latest version of the post, in case it's changed since the last time we refreshed the post list
+        final PostModel post = mPostStore.getPostByLocalPostId(postClicked.getId());
+        if (post == null) {
+            loadPosts(LoadMode.FORCED);
+            return;
+        }
 
         switch (buttonType) {
             case PostListButton.BUTTON_EDIT:
+                if (UploadService.isPostUploadingOrQueued(post)) {
+                    // If the post is uploading media, allow the media to continue uploading, but don't upload the
+                    // post itself when they finish (since we're about to edit it again)
+                    UploadService.cancelQueuedPostUpload(post);
+                }
                 ActivityLauncher.editPostOrPageForResult(getActivity(), mSite, post);
+                break;
+            case PostListButton.BUTTON_RETRY:
+                // restart the UploadService with retry parameters
+                Intent intent = UploadService.getUploadPostServiceIntent(
+                        getActivity(), post, PostUtils.isFirstTimePublish(post), false, true);
+                getActivity().startService(intent);
                 break;
             case PostListButton.BUTTON_SUBMIT:
             case PostListButton.BUTTON_SYNC:
             case PostListButton.BUTTON_PUBLISH:
-                publishPost(post);
+                showPublishConfirmationDialog(post);
                 break;
             case PostListButton.BUTTON_VIEW:
                 ActivityLauncher.browsePostOrPage(getActivity(), mSite, post);
                 break;
             case PostListButton.BUTTON_PREVIEW:
-                ActivityLauncher.viewPostPreviewForResult(getActivity(), mSite, post, mIsPage);
+                ActivityLauncher.viewPostPreviewForResult(getActivity(), mSite, post);
                 break;
             case PostListButton.BUTTON_STATS:
                 ActivityLauncher.viewStatsSinglePostDetails(getActivity(), mSite, post, mIsPage);
                 break;
             case PostListButton.BUTTON_TRASH:
             case PostListButton.BUTTON_DELETE:
-                // prevent deleting post while it's being uploaded
-                if (!PostUploadService.isPostUploading(post)) {
-                    trashPost(post);
+                if (!UploadService.isPostUploadingOrQueued(post)) {
+                    AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
+                    builder.setTitle(post.isPage() ? getString(R.string.delete_page) : getString(R.string.delete_post))
+                            .setMessage(post.isPage() ? getString(R.string.dialog_confirm_delete_page)
+                                                : getString(R.string.dialog_confirm_delete_post))
+                            .setPositiveButton(R.string.delete, new DialogInterface.OnClickListener() {
+                                @Override
+                                public void onClick(DialogInterface dialogInterface, int i) {
+                                    trashPost(post);
+                                }
+                            })
+                            .setNegativeButton(R.string.cancel, null)
+                            .setCancelable(true);
+                    builder.create().show();
+                } else {
+                    AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
+                    builder.setTitle(post.isPage() ? getText(R.string.delete_page) : getText(R.string.delete_post))
+                            .setMessage(R.string.dialog_confirm_cancel_post_media_uploading)
+                            .setPositiveButton(R.string.delete, new DialogInterface.OnClickListener() {
+                                @Override
+                                public void onClick(DialogInterface dialogInterface, int i) {
+                                    trashPost(post);
+                                }
+                            })
+                            .setNegativeButton(R.string.cancel, null)
+                            .setCancelable(true);
+                    builder.create().show();
                 }
                 break;
         }
     }
 
-    private void publishPost(final PostModel post) {
-        if (!NetworkUtils.isNetworkAvailable(getActivity())) {
-            ToastUtils.showToast(getActivity(), R.string.error_publish_no_network,
-                    ToastUtils.Duration.SHORT);
-            return;
-        }
-
-        // If the post is empty, don't publish
-        if (!PostUtils.isPublishable(post)) {
-            ToastUtils.showToast(getActivity(), R.string.error_publish_empty_post, ToastUtils.Duration.SHORT);
-            return;
-        }
-
-        post.setStatus(PostStatus.PUBLISHED.toString());
-
-        PostUploadService.addPostToUpload(post);
-        getActivity().startService(new Intent(getActivity(), PostUploadService.class));
-
-        PostUtils.trackSavePostAnalytics(post, mSite);
+    private void showPublishConfirmationDialog(final PostModel post) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
+        builder.setTitle(getResources().getText(R.string.dialog_confirm_publish_title))
+               .setMessage(post.isPage() ? getString(R.string.dialog_confirm_publish_message_page)
+                                   : getString(R.string.dialog_confirm_publish_message_post))
+               .setPositiveButton(R.string.dialog_confirm_publish_yes, new DialogInterface.OnClickListener() {
+                   @Override
+                   public void onClick(DialogInterface dialogInterface, int i) {
+                       UploadUtils.publishPost(getActivity(), post, mSite, mDispatcher);
+                   }
+               })
+               .setNegativeButton(R.string.cancel, null)
+               .setCancelable(true);
+        builder.create().show();
     }
 
     /*
      * send the passed post to the trash with undo
      */
     private void trashPost(final PostModel post) {
-        //only check if network is available in case this is not a local draft - local drafts have not yet
-        //been posted to the server so they can be trashed w/o further care
+        // only check if network is available in case this is not a local draft - local drafts have not yet
+        // been posted to the server so they can be trashed w/o further care
         if (!isAdded() || (!post.isLocalDraft() && !NetworkUtils.checkConnection(getActivity()))
             || getPostListAdapter() == null) {
             return;
@@ -571,7 +635,7 @@ public class PostsListFragment extends Fragment
         }
 
         Snackbar snackbar = Snackbar.make(getView().findViewById(R.id.coordinator), text, Snackbar.LENGTH_LONG)
-                .setAction(R.string.undo, undoListener);
+                                    .setAction(R.string.undo, undoListener);
 
         // wait for the undo snackbar to disappear before actually deleting the post
         snackbar.setCallback(new Snackbar.Callback() {
@@ -590,13 +654,16 @@ public class PostsListFragment extends Fragment
                 // https://code.google.com/p/android/issues/detail?id=190529
                 mTrashedPosts.remove(post);
 
+                // here cancel all media uploads related to this Post
+                UploadService.cancelQueuedPostUploadAndRelatedMedia(WordPress.getContext(), post);
+
                 if (post.isLocalDraft()) {
                     mDispatcher.dispatch(PostActionBuilder.newRemovePostAction(post));
 
                     // delete the pending draft notification if available
                     mShouldCancelPendingDraftNotification = false;
                     int pushId = PendingDraftsNotificationsUtils.makePendingDraftNotificationId(post.getId());
-                    NativeNotificationsUtils.dismissNotification(pushId, getActivity());
+                    NativeNotificationsUtils.dismissNotification(pushId, WordPress.getContext());
                 } else {
                     mDispatcher.dispatch(PostActionBuilder.newDeletePostAction(new RemotePostPayload(post, mSite)));
                 }
@@ -612,12 +679,24 @@ public class PostsListFragment extends Fragment
     public void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         outState.putSerializable(WordPress.SITE, mSite);
+        outState.putSerializable(PostsListActivity.EXTRA_VIEW_PAGES, mIsPage);
+        mRVScrollPositionSaver.onSaveInstanceState(outState, mRecyclerView);
     }
+
+    // FluxC events
 
     @SuppressWarnings("unused")
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPostChanged(OnPostChanged event) {
         switch (event.causeOfChange) {
+            // if a Post is updated, let's refresh the whole list, because we can't really know
+            // from FluxC which post has changed, or when. So to make sure, we go to the source,
+            // which is the FluxC PostStore.
+            case UPDATE_POST:
+                if (!event.isError()) {
+                    loadPosts(LoadMode.IF_CHANGED);
+                }
+                break;
             case FETCH_POSTS:
             case FETCH_PAGES:
                 mIsFetchingPosts = false;
@@ -644,8 +723,7 @@ public class PostsListFragment extends Fragment
                 break;
             case DELETE_POST:
                 if (event.isError()) {
-                    String message = String.format(getText(R.string.error_delete_post).toString(),
-                            mIsPage ? "page" : "post");
+                    String message = getString(mIsPage ? R.string.error_deleting_page : R.string.error_deleting_post);
                     ToastUtils.showToast(getActivity(), message, ToastUtils.Duration.SHORT);
                     loadPosts(LoadMode.IF_CHANGED);
                 }
@@ -656,8 +734,12 @@ public class PostsListFragment extends Fragment
     @SuppressWarnings("unused")
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onPostUploaded(OnPostUploaded event) {
-        if (isAdded() && event.post.getLocalSiteId() == mSite.getId()) {
+        final PostModel post = event.post;
+        if (isAdded() && event.post != null && event.post.getLocalSiteId() == mSite.getId()) {
             loadPosts(LoadMode.FORCED);
+            UploadUtils.onPostUploadedSnackbarHandler(getActivity(),
+                                                      getActivity().findViewById(R.id.coordinator),
+                                                      event.isError(), event.post, null, mSite, mDispatcher);
         }
     }
 
@@ -672,6 +754,88 @@ public class PostsListFragment extends Fragment
             if (event.mediaList != null && event.mediaList.size() > 0) {
                 MediaModel mediaModel = event.mediaList.get(0);
                 mPostsListAdapter.mediaChanged(mediaModel);
+            }
+        }
+    }
+
+    @SuppressWarnings("unused")
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onMediaUploaded(OnMediaUploaded event) {
+        if (!isAdded() || event.isError() || event.canceled) {
+            return;
+        }
+
+        if (event.media == null || event.media.getLocalPostId() == 0 || mSite.getId() != event.media.getLocalSiteId()) {
+            // Not interested in media not attached to posts or not belonging to the current site
+            return;
+        }
+
+        PostModel post = mPostStore.getPostByLocalPostId(event.media.getLocalPostId());
+        if (post != null) {
+            if ((event.media.isError() || event.canceled)) {
+                // if a media is cancelled or ends in error, and the post is not uploading nor queued,
+                // (meaning there is no other pending media to be uploaded for this post)
+                // then we should refresh it to show its new state
+                if (!UploadService.isPostUploadingOrQueued(post)) {
+                    // TODO: replace loadPosts for getPostListAdapter().notifyItemChanged(); kind of thing
+                    loadPosts(LoadMode.FORCED);
+                }
+            } else {
+                mPostsListAdapter.updateProgressForPost(post);
+            }
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public void onEventMainThread(VideoOptimizer.ProgressEvent event) {
+        if (isAdded()) {
+            PostModel post = mPostStore.getPostByLocalPostId(event.media.getLocalPostId());
+            if (post != null) {
+                mPostsListAdapter.updateProgressForPost(post);
+            }
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public void onEventMainThread(UploadService.UploadErrorEvent event) {
+        EventBus.getDefault().removeStickyEvent(event);
+        if (event.post != null) {
+            UploadUtils.onPostUploadedSnackbarHandler(getActivity(),
+                                                      getActivity().findViewById(R.id.coordinator), true, event.post,
+                                                      event.errorMessage, mSite, mDispatcher);
+        } else if (event.mediaModelList != null && !event.mediaModelList.isEmpty()) {
+            UploadUtils.onMediaUploadedSnackbarHandler(getActivity(),
+                                                       getActivity().findViewById(R.id.coordinator), true,
+                                                       event.mediaModelList, mSite, event.errorMessage);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public void onEventMainThread(UploadService.UploadMediaSuccessEvent event) {
+        EventBus.getDefault().removeStickyEvent(event);
+        if (event.mediaModelList != null && !event.mediaModelList.isEmpty()) {
+            UploadUtils.onMediaUploadedSnackbarHandler(getActivity(),
+                                                       getActivity().findViewById(R.id.coordinator), false,
+                                                       event.mediaModelList, mSite, event.successMessage);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public void onEventMainThread(UploadService.UploadMediaRetryEvent event) {
+        if (!isAdded()) {
+            return;
+        }
+
+        if (event.mediaModelList != null && !event.mediaModelList.isEmpty()) {
+            // if there' a Post to which the retried media belongs, clear their status
+            Set<PostModel> postsToRefresh =
+                    PostUtils.getPostsThatIncludeAnyOfTheseMedia(mPostStore, event.mediaModelList);
+            // now that we know which Posts to refresh, let's do it
+            for (PostModel post : postsToRefresh) {
+                int position = getPostListAdapter().getPositionForPost(post);
+                if (position > -1) {
+                    getPostListAdapter().notifyItemChanged(position);
+                }
             }
         }
     }

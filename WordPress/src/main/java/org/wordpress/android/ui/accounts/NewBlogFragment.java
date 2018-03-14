@@ -122,7 +122,7 @@ public class NewBlogFragment extends AbstractFragment implements TextWatcher {
 
     private boolean fieldsFilled() {
         return EditTextUtils.getText(mSiteUrlTextField).trim().length() > 0
-                && EditTextUtils.getText(mSiteTitleTextField).trim().length() > 0;
+               && EditTextUtils.getText(mSiteTitleTextField).trim().length() > 0;
     }
 
     protected void startProgress(String message) {
@@ -188,10 +188,6 @@ public class NewBlogFragment extends AbstractFragment implements TextWatcher {
             retValue = false;
         }
         return retValue;
-    }
-
-    private String titleToUrl(String siteUrl) {
-        return siteUrl.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
     }
 
     private void validateAndCreateUserAndBlog() {
@@ -318,7 +314,7 @@ public class NewBlogFragment extends AbstractFragment implements TextWatcher {
     private void getDomainSuggestionsFromTitle() {
         String title = EditTextUtils.getText(mSiteTitleTextField);
         if (!TextUtils.isEmpty(title)) {
-            SuggestDomainsPayload payload = new SuggestDomainsPayload(title, true, false, 5);
+            SuggestDomainsPayload payload = new SuggestDomainsPayload(title, false, true, false, 5);
             mDispatcher.dispatch(SiteActionBuilder.newSuggestDomainsAction(payload));
         }
     }
@@ -384,7 +380,7 @@ public class NewBlogFragment extends AbstractFragment implements TextWatcher {
         for (DomainSuggestionResponse suggestion : event.suggestions) {
             // Only add free suggestions ending by .wordpress.com
             if (suggestion.is_free && !TextUtils.isEmpty(suggestion.domain_name)
-                    && suggestion.domain_name.endsWith(".wordpress.com")) {
+                && suggestion.domain_name.endsWith(".wordpress.com")) {
                 mSiteUrlSuggestionAdapter.add(suggestion.domain_name.replace(".wordpress.com", ""));
             }
         }

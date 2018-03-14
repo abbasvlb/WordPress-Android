@@ -2,11 +2,11 @@ package org.wordpress.android.ui.stats.models;
 
 import android.text.TextUtils;
 
+import org.apache.commons.text.StringEscapeUtils;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.wordpress.android.util.AppLog;
-import org.wordpress.android.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,13 +34,13 @@ public class VisitsModel extends BaseStatsModel {
         }
 
         if (dataJSON == null || dataJSON.length() == 0) {
-            mVisits =  new ArrayList<>(0);
+            mVisits = new ArrayList<>(0);
         } else {
             // Read the position/index of each field in the response
             HashMap<String, Integer> columnsMapping = new HashMap<>(6);
             final JSONArray fieldsJSON = getFieldsJSON();
             if (fieldsJSON == null || fieldsJSON.length() == 0) {
-                mVisits =  new ArrayList<>(0);
+                mVisits = new ArrayList<>(0);
             } else {
                 try {
                     for (int i = 0; i < fieldsJSON.length(); i++) {
@@ -48,8 +48,8 @@ public class VisitsModel extends BaseStatsModel {
                         columnsMapping.put(field, i);
                     }
                 } catch (JSONException e) {
-                    AppLog.e(AppLog.T.STATS, "Cannot read the parameter fields from the JSON response." +
-                            "Response: " + response.toString(), e);
+                    AppLog.e(AppLog.T.STATS, "Cannot read the parameter fields from the JSON response."
+                                             + "Response: " + response.toString(), e);
                     mVisits = new ArrayList<>(0);
                 }
             }
@@ -76,7 +76,7 @@ public class VisitsModel extends BaseStatsModel {
                     mVisits.add(currentVisitModel);
                 } catch (JSONException e) {
                     AppLog.e(AppLog.T.STATS, "Cannot read the Visit item at index " + i
-                            + " Response: " + response.toString(), e);
+                                             + " Response: " + response.toString(), e);
                 }
             }
         }
@@ -113,7 +113,7 @@ public class VisitsModel extends BaseStatsModel {
     private JSONArray getFieldsJSON() {
         JSONArray jArray;
         try {
-            String categories = StringUtils.unescapeHTML(this.getFields() != null ? this.getFields() : "[]");
+            String categories = StringEscapeUtils.unescapeHtml4(this.getFields() != null ? this.getFields() : "[]");
             if (TextUtils.isEmpty(categories)) {
                 jArray = new JSONArray();
             } else {

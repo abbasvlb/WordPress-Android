@@ -5,8 +5,10 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.Configuration;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -20,36 +22,41 @@ import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import com.android.volley.VolleyError;
 import com.android.volley.toolbox.ImageLoader;
 import com.android.volley.toolbox.NetworkImageView;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.wordpress.android.util.AppLog;
+import org.wordpress.android.util.DisplayUtils;
 import org.wordpress.android.util.MediaUtils;
 import org.wordpress.android.util.ToastUtils;
 
 import java.util.Arrays;
+import java.util.Locale;
 
 import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_ALIGN;
+import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_ALT;
 import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_CAPTION;
+import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_DIMEN_HEIGHT;
+import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_DIMEN_WIDTH;
+import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_ID_ATTACHMENT;
 import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_ID_IMAGE_REMOTE;
+import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_SRC;
+import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_TITLE;
 import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_URL_LINK;
 import static org.wordpress.android.editor.EditorFragmentAbstract.EXTRA_ENABLED_AZTEC;
 import static org.wordpress.android.editor.EditorFragmentAbstract.EXTRA_FEATURED;
 import static org.wordpress.android.editor.EditorFragmentAbstract.EXTRA_IMAGE_FEATURED;
 import static org.wordpress.android.editor.EditorFragmentAbstract.EXTRA_IMAGE_META;
 import static org.wordpress.android.editor.EditorFragmentAbstract.EXTRA_MAX_WIDTH;
-import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_SRC;
-import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_ALT;
-import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_DIMEN_HEIGHT;
-import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_ID_ATTACHMENT;
-import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_TITLE;
-import static org.wordpress.android.editor.EditorFragmentAbstract.ATTR_DIMEN_WIDTH;
 
 /**
  * A full-screen DialogFragment with image settings.
@@ -65,6 +72,8 @@ public class ImageSettingsDialogFragment extends DialogFragment {
     private int mMaxImageWidth;
     private ImageLoader mImageLoader;
 
+    private ImageView mImageView;
+    private ProgressBar mProgress;
     private EditText mTitleText;
     private EditText mCaptionText;
     private EditText mAltText;
@@ -145,14 +154,15 @@ public class ImageSettingsDialogFragment extends DialogFragment {
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.dialog_image_options, container, false);
 
-        NetworkImageView thumbnailImage = (NetworkImageView) view.findViewById(R.id.image_thumbnail);
         TextView filenameLabel = (TextView) view.findViewById(R.id.image_filename);
+        mImageView = (ImageView) view.findViewById(R.id.image_thumbnail);
+        mProgress = (ProgressBar) view.findViewById(R.id.progress);
         mTitleText = (EditText) view.findViewById(R.id.image_title);
         mCaptionText = (EditText) view.findViewById(R.id.image_caption);
         mAltText = (EditText) view.findViewById(R.id.image_alt_text);
         mAlignmentSpinner = (Spinner) view.findViewById(R.id.alignment_spinner);
         mLinkTo = (EditText) view.findViewById(R.id.image_link_to);
-        SeekBar widthSeekBar = (SeekBar) view.findViewById(R.id.image_width_seekbar);
+        SeekBar widthSeekBar = (SeekBar) view.findViewById(R.id.image_size_seekbar);
         mWidthText = (EditText) view.findViewById(R.id.image_width_text);
         mFeaturedCheckBox = (CheckBox) view.findViewById(R.id.featuredImage);
 
@@ -165,7 +175,7 @@ public class ImageSettingsDialogFragment extends DialogFragment {
                 final String imageSrc = mImageMeta.getString(ATTR_SRC);
                 final String imageFilename = imageSrc.substring(imageSrc.lastIndexOf("/") + 1);
 
-                loadThumbnail(imageSrc, thumbnailImage);
+                loadThumbnail(imageSrc);
                 filenameLabel.setText(imageFilename);
 
                 mTitleText.setText(mImageMeta.getString(ATTR_TITLE));
@@ -179,7 +189,7 @@ public class ImageSettingsDialogFragment extends DialogFragment {
 
                 mLinkTo.setText(mImageMeta.getString(ATTR_URL_LINK));
 
-                mMaxImageWidth = MediaUtils.getMaximumImageWidth(mImageMeta.getInt("naturalWidth"),
+                mMaxImageWidth = MediaUtils.getMaximumImageSize(mImageMeta.getInt("naturalWidth"),
                         bundle.getString(EXTRA_MAX_WIDTH));
 
                 setupWidthSeekBar(widthSeekBar, mWidthText, mImageMeta.getInt(ATTR_DIMEN_WIDTH));
@@ -243,7 +253,6 @@ public class ImageSettingsDialogFragment extends DialogFragment {
         int id = item.getItemId();
 
         if (id == android.R.id.home) {
-            dismissFragment();
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -353,20 +362,67 @@ public class ImageSettingsDialogFragment extends DialogFragment {
 
         return metaData;
     }
+
     /**
      * Loads the given network image URL into the {@link NetworkImageView}.
      */
-    private void loadThumbnail(String imageUrl, NetworkImageView imageView) {
-        if (imageUrl != null) {
-            Uri uri = Uri.parse(imageUrl);
-            String filepath = uri.getLastPathSegment();
-
-            if (MediaUtils.isValidImage(filepath)) {
-                imageView.setImageUrl(imageUrl, mImageLoader);
+    private void loadThumbnail(String imageUrl) {
+        if (imageUrl == null || mImageLoader == null) {
+            showErrorImage();
+            if (imageUrl == null) {
+                AppLog.e(AppLog.T.MEDIA, "Image url is null! Show the default error image.");
             }
-        } else {
-            imageView.setImageResource(0);
+            return;
         }
+
+        Uri uri = Uri.parse(imageUrl);
+        String filepath = uri.getLastPathSegment();
+
+        if (MediaUtils.isValidImage(filepath)) {
+            int size = DisplayUtils.dpToPx(
+                    getActivity(),
+                    getResources().getDimensionPixelSize(R.dimen.image_settings_dialog_thumbnail_size)
+            );
+            mImageView.setVisibility(View.GONE);
+            mProgress.setVisibility(View.VISIBLE);
+
+            mImageLoader.get(imageUrl, new ImageLoader.ImageListener() {
+                @Override
+                public void onResponse(ImageLoader.ImageContainer response, boolean isImmediate) {
+                    if (!isAdded()) {
+                        return;
+                    }
+                    if (response.getBitmap() != null) {
+                        mImageView.setVisibility(View.VISIBLE);
+                        mProgress.setVisibility(View.GONE);
+                        mImageView.setImageBitmap(response.getBitmap());
+                    } else {
+                        if (!isImmediate) {
+                            showErrorImage();
+                        }
+                    }
+                }
+
+                @Override
+                public void onErrorResponse(VolleyError error) {
+                    AppLog.e(AppLog.T.MEDIA, error);
+                    if (!isAdded()) {
+                        return;
+                    }
+                    showErrorImage();
+                }
+            }, size, 0);
+        } else {
+            showErrorImage();
+        }
+    }
+
+    private void showErrorImage() {
+        mProgress.setVisibility(View.GONE);
+        mImageView.setVisibility(View.VISIBLE);
+        mImageView.setImageDrawable(
+                new ColorDrawable(ContextCompat.getColor(getActivity(), R.color.grey_lighten_30))
+        );
     }
 
     /**
@@ -377,7 +433,7 @@ public class ImageSettingsDialogFragment extends DialogFragment {
 
         if (imageWidth != 0) {
             widthSeekBar.setProgress(imageWidth / 10);
-            widthText.setText(String.valueOf(imageWidth) + "px");
+            widthText.setText(String.format(Locale.US, getString(R.string.pixel_suffix), imageWidth));
         }
 
         widthSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -394,7 +450,7 @@ public class ImageSettingsDialogFragment extends DialogFragment {
                 if (progress == 0) {
                     progress = 1;
                 }
-                widthText.setText(progress * 10 + "px");
+                widthText.setText(String.format(Locale.US, getString(R.string.pixel_suffix), progress * 10));
             }
         });
 
@@ -411,7 +467,16 @@ public class ImageSettingsDialogFragment extends DialogFragment {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
                 int width = getEditTextIntegerClamped(widthText, 10, mMaxImageWidth);
-                widthSeekBar.setProgress(width / 10);
+
+                int progress = width / 10;
+
+                // OnSeekBarChangeListener will not be triggered if progress have not changed
+                if (widthSeekBar.getProgress() == progress) {
+                    widthText.setText(String.format(Locale.US, getString(R.string.pixel_suffix), progress * 10));
+                } else {
+                    widthSeekBar.setProgress(progress);
+                }
+
                 widthText.setSelection((String.valueOf(width).length()));
 
                 InputMethodManager imm = (InputMethodManager) getActivity()
@@ -424,6 +489,7 @@ public class ImageSettingsDialogFragment extends DialogFragment {
         });
     }
 
+
     /**
      * Return the integer value of the width EditText, adjusted to be within the given min and max, and stripped of the
      * 'px' units
@@ -432,8 +498,9 @@ public class ImageSettingsDialogFragment extends DialogFragment {
         int width = 10;
 
         try {
-            if (editText.getText() != null)
+            if (editText.getText() != null) {
                 width = Integer.parseInt(editText.getText().toString().replace("px", ""));
+            }
         } catch (NumberFormatException e) {
             AppLog.e(AppLog.T.EDITOR, e);
         }

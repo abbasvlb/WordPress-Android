@@ -12,18 +12,16 @@ import org.wordpress.android.models.Note;
  */
 
 public class CommentActions {
-
     private CommentActions() {
         throw new AssertionError();
     }
-    
+
     /*
      * used by comment fragments to alert container activity of a change to one or more
      * comments (moderated, deleted, added, etc.)
      */
-    public enum ChangeType {EDITED, REPLIED}
-    public interface OnCommentChangeListener {
-        void onCommentChanged(ChangeType changeType);
+    public enum ChangeType {
+        EDITED, REPLIED
     }
 
     public interface OnCommentActionListener {

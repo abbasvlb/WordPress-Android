@@ -3,7 +3,7 @@ package org.wordpress.android.ui.posts;
 import android.app.Fragment;
 import android.app.FragmentManager;
 import android.app.FragmentTransaction;
-import android.content.Intent;
+import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.support.v7.app.ActionBar;
@@ -32,11 +32,12 @@ import org.wordpress.android.fluxc.store.PostStore.OnPostChanged;
 import org.wordpress.android.fluxc.store.PostStore.OnPostUploaded;
 import org.wordpress.android.fluxc.store.PostStore.RemotePostPayload;
 import org.wordpress.android.ui.ActivityLauncher;
-import org.wordpress.android.ui.posts.services.PostEvents;
-import org.wordpress.android.ui.posts.services.PostUploadService;
+import org.wordpress.android.ui.uploads.PostEvents;
+import org.wordpress.android.ui.uploads.UploadService;
 import org.wordpress.android.util.AnalyticsUtils;
 import org.wordpress.android.util.AniUtils;
 import org.wordpress.android.util.AppLog;
+import org.wordpress.android.util.LocaleManager;
 import org.wordpress.android.util.NetworkUtils;
 import org.wordpress.android.util.ToastUtils;
 
@@ -44,9 +45,9 @@ import javax.inject.Inject;
 
 import de.greenrobot.event.EventBus;
 
-public class PostPreviewActivity extends AppCompatActivity {
-    public static final String EXTRA_POST = "postModel";
+import static org.wordpress.android.ui.posts.EditPostActivity.EXTRA_POST_LOCAL_ID;
 
+public class PostPreviewActivity extends AppCompatActivity {
     private boolean mIsUpdatingPost;
 
     private PostModel mPost;
@@ -54,6 +55,11 @@ public class PostPreviewActivity extends AppCompatActivity {
 
     @Inject Dispatcher mDispatcher;
     @Inject PostStore mPostStore;
+
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(LocaleManager.setLocale(newBase));
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -70,17 +76,15 @@ public class PostPreviewActivity extends AppCompatActivity {
             actionBar.setDisplayShowTitleEnabled(true);
         }
 
-        if (savedInstanceState != null) {
-            mPost = (PostModel) savedInstanceState.getSerializable(EXTRA_POST);
-        } else {
-            mPost = (PostModel) getIntent().getSerializableExtra(EXTRA_POST);
-        }
-
+        int localPostId;
         if (savedInstanceState == null) {
             mSite = (SiteModel) getIntent().getSerializableExtra(WordPress.SITE);
+            localPostId = getIntent().getIntExtra(EXTRA_POST_LOCAL_ID, 0);
         } else {
             mSite = (SiteModel) savedInstanceState.getSerializable(WordPress.SITE);
+            localPostId = savedInstanceState.getInt(EXTRA_POST_LOCAL_ID);
         }
+        mPost = mPostStore.getPostByLocalPostId(localPostId);
         if (mSite == null || mPost == null) {
             ToastUtils.showToast(this, R.string.blog_not_found, ToastUtils.Duration.SHORT);
             finish();
@@ -124,9 +128,9 @@ public class PostPreviewActivity extends AppCompatActivity {
         Fragment fragment = PostPreviewFragment.newInstance(mSite, mPost);
 
         fm.beginTransaction()
-                .replace(R.id.fragment_container, fragment, tagForFragment)
-                .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
-                .commitAllowingStateLoss();
+          .replace(R.id.fragment_container, fragment, tagForFragment)
+          .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
+          .commitAllowingStateLoss();
     }
 
     private boolean hasPreviewFragment() {
@@ -156,7 +160,7 @@ public class PostPreviewActivity extends AppCompatActivity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         outState.putSerializable(WordPress.SITE, mSite);
-        outState.putSerializable(EXTRA_POST, mPost);
+        outState.putSerializable(EXTRA_POST_LOCAL_ID, mPost.getId());
         super.onSaveInstanceState(outState);
     }
 
@@ -188,10 +192,10 @@ public class PostPreviewActivity extends AppCompatActivity {
         final ViewGroup messageView = (ViewGroup) findViewById(R.id.message_container);
 
         if (mPost == null
-                || mIsUpdatingPost
-                || PostUploadService.isPostUploading(mPost)
-                || (!mPost.isLocallyChanged() && !mPost.isLocalDraft())
-                && PostStatus.fromPost(mPost) != PostStatus.DRAFT) {
+            || mIsUpdatingPost
+            || UploadService.isPostUploadingOrQueued(mPost)
+            || (!mPost.isLocallyChanged() && !mPost.isLocalDraft())
+               && PostStatus.fromPost(mPost) != PostStatus.DRAFT) {
             messageView.setVisibility(View.GONE);
             return;
         }
@@ -286,15 +290,14 @@ public class PostPreviewActivity extends AppCompatActivity {
             if (PostStatus.fromPost(mPost) == PostStatus.DRAFT) {
                 // Remote draft being published
                 mPost.setStatus(PostStatus.PUBLISHED.toString());
-                PostUploadService.addPostToUploadAndTrackAnalytics(mPost);
+                UploadService.uploadPostAndTrackAnalytics(this, mPost);
             } else if (mPost.isLocalDraft() && PostStatus.fromPost(mPost) == PostStatus.PUBLISHED) {
                 // Local draft being published
-                PostUploadService.addPostToUploadAndTrackAnalytics(mPost);
+                UploadService.uploadPostAndTrackAnalytics(this, mPost);
             } else {
                 // Not a first-time publish
-                PostUploadService.addPostToUpload(mPost);
+                UploadService.uploadPost(this, mPost);
             }
-            startService(new Intent(this, PostUploadService.class));
         }
     }
 

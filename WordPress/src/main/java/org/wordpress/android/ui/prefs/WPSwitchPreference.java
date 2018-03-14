@@ -5,6 +5,7 @@ import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.preference.SwitchPreference;
 import android.support.annotation.NonNull;
+import android.support.v4.view.ViewCompat;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.TypedValue;
@@ -20,7 +21,6 @@ public class WPSwitchPreference extends SwitchPreference implements PreferenceHi
         super(context, attrs);
 
         TypedArray array = context.obtainStyledAttributes(attrs, R.styleable.SummaryEditTextPreference);
-
         for (int i = 0; i < array.getIndexCount(); ++i) {
             int index = array.getIndex(i);
             if (index == R.styleable.SummaryEditTextPreference_longClickHint) {
@@ -40,6 +40,11 @@ public class WPSwitchPreference extends SwitchPreference implements PreferenceHi
             Resources res = getContext().getResources();
             titleView.setTextSize(TypedValue.COMPLEX_UNIT_PX, res.getDimensionPixelSize(R.dimen.text_sz_large));
             titleView.setTextColor(res.getColor(isEnabled() ? R.color.grey_dark : R.color.grey_lighten_10));
+
+            // add padding to the start of nested preferences
+            if (!TextUtils.isEmpty(getDependency())) {
+                ViewCompat.setPaddingRelative(titleView, res.getDimensionPixelSize(R.dimen.margin_large), 0, 0, 0);
+            }
         }
     }
 

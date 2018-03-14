@@ -7,7 +7,6 @@ import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.StringRes;
 import android.support.design.widget.AppBarLayout;
-import android.support.v4.widget.SwipeRefreshLayout;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
@@ -15,6 +14,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.Animation;
+import android.widget.Button;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 
@@ -31,6 +31,7 @@ import org.wordpress.android.fluxc.store.AccountStore;
 import org.wordpress.android.models.Note;
 import org.wordpress.android.push.GCMMessageService;
 import org.wordpress.android.ui.ActivityLauncher;
+import org.wordpress.android.ui.JetpackConnectionWebViewActivity;
 import org.wordpress.android.ui.RequestCodes;
 import org.wordpress.android.ui.main.WPMainActivity;
 import org.wordpress.android.ui.notifications.adapters.NotesAdapter;
@@ -38,14 +39,16 @@ import org.wordpress.android.ui.notifications.services.NotificationsUpdateServic
 import org.wordpress.android.ui.notifications.utils.NotificationsActions;
 import org.wordpress.android.util.AniUtils;
 import org.wordpress.android.util.NetworkUtils;
-import org.wordpress.android.util.ToastUtils;
-import org.wordpress.android.util.ToastUtils.Duration;
+import org.wordpress.android.util.helpers.SwipeToRefreshHelper;
+import org.wordpress.android.util.widgets.CustomSwipeRefreshLayout;
 
 import javax.inject.Inject;
 
 import de.greenrobot.event.EventBus;
 
 import static android.app.Activity.RESULT_OK;
+import static org.wordpress.android.ui.JetpackConnectionWebViewActivity.Source.NOTIFICATIONS;
+import static org.wordpress.android.util.WPSwipeToRefreshHelper.buildSwipeToRefreshHelper;
 
 public class NotificationsListFragment extends Fragment implements WPMainActivity.OnScrollToTopListener,
         RadioGroup.OnCheckedChangeListener, NotesAdapter.DataLoadedListener {
@@ -59,10 +62,11 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
     private static final String KEY_LIST_SCROLL_POSITION = "scrollPosition";
 
     private NotesAdapter mNotesAdapter;
-    private SwipeRefreshLayout mSwipeRefreshLayout;
+    private SwipeToRefreshHelper mSwipeToRefreshHelper;
     private LinearLayoutManager mLinearLayoutManager;
     private RecyclerView mRecyclerView;
     private ViewGroup mEmptyView;
+    private ViewGroup mConnectJetpackView;
     private View mFilterView;
     private RadioGroup mFilterRadioGroup;
     private View mFilterDivider;
@@ -100,20 +104,22 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
         mFilterRadioGroup.setOnCheckedChangeListener(this);
         mFilterDivider = view.findViewById(R.id.notifications_filter_divider);
         mEmptyView = (ViewGroup) view.findViewById(R.id.empty_view);
+        mConnectJetpackView = view.findViewById(R.id.connect_jetpack);
         mFilterView = view.findViewById(R.id.notifications_filter);
 
         mLinearLayoutManager = new LinearLayoutManager(getActivity());
         mRecyclerView.setLayoutManager(mLinearLayoutManager);
 
-        mSwipeRefreshLayout = (SwipeRefreshLayout) view.findViewById(R.id.swipe_refresh_notifications);
-        mSwipeRefreshLayout.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
-            @Override
-            public void onRefresh() {
-                hideNewNotificationsBar();
-                fetchNotesFromRemote();
-            }
-        });
-
+        mSwipeToRefreshHelper = buildSwipeToRefreshHelper(
+                (CustomSwipeRefreshLayout) view.findViewById(R.id.swipe_refresh_notifications),
+                new SwipeToRefreshHelper.RefreshListener() {
+                    @Override
+                    public void onRefreshStarted() {
+                        hideNewNotificationsBar();
+                        fetchNotesFromRemote();
+                    }
+                }
+                                                         );
 
         // bar that appears at bottom after new notes are received and the user is on this screen
         mNewNotificationsBar = view.findViewById(R.id.layout_new_notificatons);
@@ -160,7 +166,9 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
 
     @Override
     public void onScrollToTop() {
-        if(!isAdded()) return;
+        if (!isAdded()) {
+            return;
+        }
         clearPendingNotificationsItemsOnUI();
         if (getFirstVisibleItemID() > 0) {
             mLinearLayoutManager.smoothScrollToPosition(mRecyclerView, null, 0);
@@ -180,7 +188,9 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
 
     private void updateNote(String noteId, CommentStatus status) {
         Note note = NotificationsTable.getNoteById(noteId);
-        if (note == null) return;
+        if (note == null) {
+            return;
+        }
         note.setLocalStatus(status.toString());
         NotificationsTable.saveNote(note);
         EventBus.getDefault().post(new NotificationEvents.NotificationsChanged());
@@ -209,10 +219,8 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
         ));
 
         if (!mAccountStore.hasAccessToken()) {
-            // let user know that notifications require a wp.com account and enable sign-in
-            showEmptyView(R.string.notifications_account_required, 0, R.string.sign_in);
+            showConnectJetpackView();
             mFilterRadioGroup.setVisibility(View.GONE);
-            mSwipeRefreshLayout.setVisibility(View.GONE);
         } else {
             getNotesAdapter().reloadNotesFromDBAsync();
         }
@@ -246,7 +254,9 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
                 return;
             }
 
-            if (TextUtils.isEmpty(noteId)) return;
+            if (TextUtils.isEmpty(noteId)) {
+                return;
+            }
 
             // open the latest version of this note just in case it has changed - this can
             // happen if the note was tapped from the list fragment after it was updated
@@ -292,33 +302,6 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
         activity.startActivityForResult(detailIntent, RequestCodes.NOTE_DETAIL);
     }
 
-    private void setNoteIsHidden(String noteId, boolean isHidden) {
-        if (mNotesAdapter == null) return;
-
-        if (isHidden) {
-            mNotesAdapter.addHiddenNoteId(noteId);
-        } else {
-            // Scroll the row into view if it isn't visible so the animation can be seen
-            int notePosition = mNotesAdapter.getPositionForNote(noteId);
-            if (notePosition != RecyclerView.NO_POSITION &&
-                    mLinearLayoutManager.findFirstCompletelyVisibleItemPosition() > notePosition) {
-                mLinearLayoutManager.scrollToPosition(notePosition);
-            }
-
-            mNotesAdapter.removeHiddenNoteId(noteId);
-        }
-    }
-
-    private void setNoteIsModerating(String noteId, boolean isModerating) {
-        if (mNotesAdapter == null) return;
-
-        if (isModerating) {
-            mNotesAdapter.addModeratingNoteId(noteId);
-        } else {
-            mNotesAdapter.removeModeratingNoteId(noteId);
-        }
-    }
-
     private void showEmptyView(@StringRes int titleResId) {
         showEmptyView(titleResId, 0, 0);
     }
@@ -328,6 +311,7 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
             mEmptyView.setVisibility(View.VISIBLE);
             mFilterDivider.setVisibility(View.GONE);
             mRecyclerView.setVisibility(View.GONE);
+            mConnectJetpackView.setVisibility(View.GONE);
             setFilterViewScrollable(false);
             ((TextView) mEmptyView.findViewById(R.id.text_empty)).setText(titleResId);
 
@@ -355,14 +339,34 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
         }
     }
 
+    private void showConnectJetpackView() {
+        if (isAdded() && mConnectJetpackView != null) {
+            mConnectJetpackView.setVisibility(View.VISIBLE);
+            mEmptyView.setVisibility(View.GONE);
+            mFilterDivider.setVisibility(View.GONE);
+            mRecyclerView.setVisibility(View.GONE);
+            setFilterViewScrollable(false);
+
+            Button setupButton = mConnectJetpackView.findViewById(R.id.jetpack_setup);
+            setupButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    SiteModel siteModel = getSelectedSite();
+                    JetpackConnectionWebViewActivity
+                            .startJetpackConnectionFlow(getActivity(), NOTIFICATIONS, siteModel, false);
+                }
+            });
+        }
+    }
+
     private void setFilterViewScrollable(boolean isScrollable) {
         if (mFilterView != null && mFilterView.getLayoutParams() instanceof AppBarLayout.LayoutParams) {
             AppBarLayout.LayoutParams params = (AppBarLayout.LayoutParams) mFilterView.getLayoutParams();
             if (isScrollable) {
                 params.setScrollFlags(
-                        AppBarLayout.LayoutParams.SCROLL_FLAG_SCROLL |
-                                AppBarLayout.LayoutParams.SCROLL_FLAG_ENTER_ALWAYS
-                );
+                        AppBarLayout.LayoutParams.SCROLL_FLAG_SCROLL
+                        | AppBarLayout.LayoutParams.SCROLL_FLAG_ENTER_ALWAYS
+                                     );
             } else {
                 params.setScrollFlags(0);
             }
@@ -373,9 +377,9 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
         if (isAdded() && mEmptyView != null) {
             setFilterViewScrollable(true);
             mEmptyView.setVisibility(View.GONE);
+            mConnectJetpackView.setVisibility(View.GONE);
             mFilterDivider.setVisibility(View.VISIBLE);
             mRecyclerView.setVisibility(View.VISIBLE);
-            mSwipeRefreshLayout.setVisibility(View.VISIBLE);
         }
     }
 
@@ -385,7 +389,7 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
         }
 
         if (!NetworkUtils.isNetworkAvailable(getActivity())) {
-            mSwipeRefreshLayout.setRefreshing(false);
+            mSwipeToRefreshHelper.setRefreshing(false);
             return;
         }
 
@@ -394,7 +398,9 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
 
     // Show different empty list message and action button based on the active filter
     private void showEmptyViewForCurrentFilter() {
-        if (!mAccountStore.hasAccessToken()) return;
+        if (!mAccountStore.hasAccessToken()) {
+            return;
+        }
 
         int i = mFilterRadioGroup.getCheckedRadioButtonId();
         if (i == R.id.notifications_filter_all) {
@@ -402,8 +408,8 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
                     R.string.notifications_empty_all,
                     R.string.notifications_empty_action_all,
                     R.string.notifications_empty_view_reader
-            );
-        } else if (i == R.id.notifications_filter_unread) {// User might not have a blog, if so just show the title
+                         );
+        } else if (i == R.id.notifications_filter_unread) { // User might not have a blog, if so just show the title
             if (getSelectedSite() == null) {
                 showEmptyView(R.string.notifications_empty_unread);
             } else {
@@ -411,33 +417,35 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
                         R.string.notifications_empty_unread,
                         R.string.notifications_empty_action_unread,
                         R.string.new_post
-                );
+                             );
             }
         } else if (i == R.id.notifications_filter_comments) {
             showEmptyView(
                     R.string.notifications_empty_comments,
                     R.string.notifications_empty_action_comments,
                     R.string.notifications_empty_view_reader
-            );
+                         );
         } else if (i == R.id.notifications_filter_follows) {
             showEmptyView(
                     R.string.notifications_empty_followers,
                     R.string.notifications_empty_action_followers_likes,
                     R.string.notifications_empty_view_reader
-            );
+                         );
         } else if (i == R.id.notifications_filter_likes) {
             showEmptyView(
                     R.string.notifications_empty_likes,
                     R.string.notifications_empty_action_followers_likes,
                     R.string.notifications_empty_view_reader
-            );
+                         );
         } else {
             showEmptyView(R.string.notifications_empty_list);
         }
     }
 
     private void performActionForActiveFilter() {
-        if (mFilterRadioGroup == null || !isAdded()) return;
+        if (mFilterRadioGroup == null || !isAdded()) {
+            return;
+        }
 
         if (!mAccountStore.hasAccessToken()) {
             ActivityLauncher.showSignInForResult(getActivity());
@@ -446,8 +454,8 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
 
         int i = mFilterRadioGroup.getCheckedRadioButtonId();
         if (i == R.id.notifications_filter_unread) { // Create a new post
-            ActivityLauncher.addNewPostOrPageForResult(getActivity(), getSelectedSite(), false);
-        } else {// Switch to Reader tab
+            ActivityLauncher.addNewPostOrPageForResult(getActivity(), getSelectedSite(), false, false);
+        } else { // Switch to Reader tab
             if (getActivity() instanceof WPMainActivity) {
                 ((WPMainActivity) getActivity()).setReaderTabActive();
             }
@@ -455,7 +463,7 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
     }
 
     private void restoreListScrollPosition() {
-        if (!isAdded()  ||  mRestoredScrollNoteID <= 0) {
+        if (!isAdded() || mRestoredScrollNoteID <= 0) {
             return;
         }
         final int pos = getNotesAdapter().getPositionForNote(String.valueOf(mRestoredScrollNoteID));
@@ -534,53 +542,30 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
     @SuppressWarnings("unused")
     public void onEventMainThread(NotificationEvents.NotificationsRefreshError error) {
         if (isAdded()) {
-            ToastUtils.showToast(getActivity(), getString(R.string.error_refresh_notifications));
-            mSwipeRefreshLayout.setRefreshing(false);
+            mSwipeToRefreshHelper.setRefreshing(false);
         }
     }
+
     @SuppressWarnings("unused")
     public void onEventMainThread(final NotificationEvents.NotificationsRefreshCompleted event) {
         if (!isAdded()) {
             return;
         }
-        mSwipeRefreshLayout.setRefreshing(false);
+        mSwipeToRefreshHelper.setRefreshing(false);
         mNotesAdapter.addAll(event.notes, true);
     }
 
     @SuppressWarnings("unused")
-    public void onEventMainThread(final NotificationEvents.NoteModerationStatusChanged event) {
-        if (event.isModerating) {
-            setNoteIsModerating(event.noteId, event.isModerating);
-            EventBus.getDefault().removeStickyEvent(NotificationEvents.NoteModerationStatusChanged.class);
-        } else {
-            // Moderation done -> refresh the note before calling the end.
-            NotificationsActions.downloadNoteAndUpdateDB(event.noteId,
-                    new RestRequest.Listener() {
-                        @Override
-                        public void onResponse(JSONObject response) {
-                            setNoteIsModerating(event.noteId, event.isModerating);
-                            EventBus.getDefault().removeStickyEvent(NotificationEvents.NoteModerationStatusChanged.class);
-                        }
-                    }, new RestRequest.ErrorListener() {
-                        @Override
-                        public void onErrorResponse(VolleyError error) {
-                            setNoteIsModerating(event.noteId, event.isModerating);
-                            EventBus.getDefault().removeStickyEvent(NotificationEvents.NoteModerationStatusChanged.class);
-                        }
-                    }
-            );
-        }
-    }
-
-    @SuppressWarnings("unused")
-    public void onEventMainThread(final NotificationEvents.NoteLikeStatusChanged event) {
+    public void onEventMainThread(final NotificationEvents.NoteLikeOrModerationStatusChanged event) {
         // Like/unlike done -> refresh the note and update db
-        NotificationsActions.downloadNoteAndUpdateDB(event.noteId,
+        NotificationsActions.downloadNoteAndUpdateDB(
+                event.noteId,
                 new RestRequest.Listener() {
                     @Override
                     public void onResponse(JSONObject response) {
-                        EventBus.getDefault().removeStickyEvent(NotificationEvents.NoteLikeStatusChanged.class);
-                        //now re-set the object in our list adapter with the note saved in the updated DB
+                        EventBus.getDefault().removeStickyEvent(
+                                NotificationEvents.NoteLikeOrModerationStatusChanged.class);
+                        // now re-set the object in our list adapter with the note saved in the updated DB
                         Note note = NotificationsTable.getNoteById(event.noteId);
                         if (note != null) {
                             mNotesAdapter.replaceNote(note);
@@ -589,26 +574,10 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
                 }, new RestRequest.ErrorListener() {
                     @Override
                     public void onErrorResponse(VolleyError error) {
-                        EventBus.getDefault().removeStickyEvent(NotificationEvents.NoteLikeStatusChanged.class);
+                        EventBus.getDefault().removeStickyEvent(
+                                NotificationEvents.NoteLikeOrModerationStatusChanged.class);
                     }
-                }
-        );
-    }
-
-    @SuppressWarnings("unused")
-    public void onEventMainThread(NotificationEvents.NoteVisibilityChanged event) {
-        setNoteIsHidden(event.noteId, event.isHidden);
-
-        EventBus.getDefault().removeStickyEvent(NotificationEvents.NoteVisibilityChanged.class);
-    }
-
-    @SuppressWarnings("unused")
-    public void onEventMainThread(NotificationEvents.NoteModerationFailed event) {
-        if (isAdded()) {
-            ToastUtils.showToast(getActivity(), R.string.error_moderate_comment, Duration.LONG);
-        }
-
-        EventBus.getDefault().removeStickyEvent(NotificationEvents.NoteModerationFailed.class);
+                });
     }
 
     public SiteModel getSelectedSite() {
@@ -645,14 +614,17 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
     }
 
     private void showNewUnseenNotificationsUI() {
-        if (!isAdded()) return;
+        if (!isAdded()) {
+            return;
+        }
 
         // Make sure the RecyclerView is configured
         if (mRecyclerView == null || mRecyclerView.getLayoutManager() == null) {
             return;
         }
 
-        mRecyclerView.clearOnScrollListeners(); // Just one listener. Multiple notes received here add multiple listeners.
+        mRecyclerView
+                .clearOnScrollListeners(); // Just one listener. Multiple notes received here add multiple listeners.
 
         // Assign the scroll listener to hide the bar when the recycler is scrolled, but don't assign
         // it right away since the user may be scrolling when the bar appears (which would cause it
@@ -698,7 +670,9 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
 
         Animation.AnimationListener listener = new Animation.AnimationListener() {
             @Override
-            public void onAnimationStart(Animation animation) { }
+            public void onAnimationStart(Animation animation) {
+            }
+
             @Override
             public void onAnimationEnd(Animation animation) {
                 if (isAdded()) {
@@ -706,8 +680,10 @@ public class NotificationsListFragment extends Fragment implements WPMainActivit
                     mIsAnimatingOutNewNotificationsBar = false;
                 }
             }
+
             @Override
-            public void onAnimationRepeat(Animation animation) { }
+            public void onAnimationRepeat(Animation animation) {
+            }
         };
         AniUtils.startAnimation(mNewNotificationsBar, R.anim.notifications_bottom_bar_out, listener);
     }

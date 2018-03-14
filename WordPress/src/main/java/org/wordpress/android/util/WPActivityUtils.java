@@ -6,31 +6,22 @@ import android.app.Fragment;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.content.res.Configuration;
-import android.content.res.Resources;
 import android.os.Build;
-import android.preference.PreferenceManager;
-import android.support.annotation.Nullable;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
-import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.TextView;
 
 import org.wordpress.android.R;
-import org.wordpress.android.ui.prefs.AppSettingsFragment;
 
 import java.util.List;
-import java.util.Locale;
 
 public class WPActivityUtils {
     // Hack! PreferenceScreens don't show the toolbar, so we'll manually add one
@@ -41,20 +32,22 @@ public class WPActivityUtils {
         }
 
         Toolbar toolbar;
-        if (dialog.findViewById(android.R.id.list) == null &&
-                dialog.findViewById(android.R.id.list_container) == null) {
+        if (dialog.findViewById(android.R.id.list) == null
+            && dialog.findViewById(android.R.id.list_container) == null) {
             return;
         }
 
         @SuppressLint("InlinedApi") View child = dialog.findViewById(android.R.id.list_container);
         if (child == null) {
             child = dialog.findViewById(android.R.id.list);
-            if (child == null) return;
+            if (child == null) {
+                return;
+            }
         }
 
         ViewGroup root = (ViewGroup) child.getParent();
         toolbar = (Toolbar) LayoutInflater.from(context.getActivity())
-                .inflate(org.wordpress.android.R.layout.toolbar, root, false);
+                                          .inflate(org.wordpress.android.R.layout.toolbar, root, false);
         root.addView(toolbar, 0);
 
         dialog.getWindow().setWindowAnimations(R.style.DialogAnimations);
@@ -76,13 +69,15 @@ public class WPActivityUtils {
     /**
      * Checks for a {@link Toolbar} at the first child element of a given {@link Dialog} and
      * removes it if it exists.
-     *
+     * <p>
      * Originally added to prevent a crash that occurs with nested PreferenceScreens that added
      * a toolbar via {@link WPActivityUtils#addToolbarToDialog(Fragment, Dialog, String)}. The
      * crash can be reproduced by turning 'Don't keep activities' on from Developer options.
      */
     public static void removeToolbarFromDialog(final Fragment context, final Dialog dialog) {
-        if (dialog == null || !context.isAdded()) return;
+        if (dialog == null || !context.isAdded()) {
+            return;
+        }
 
         ViewGroup root = (ViewGroup) dialog.findViewById(android.R.id.list).getParent();
         if (root.getChildAt(0) instanceof Toolbar) {
@@ -99,39 +94,9 @@ public class WPActivityUtils {
         }
     }
 
-    public static void hideKeyboard(@Nullable final View view) {
-        if (view == null) return;
-        InputMethodManager inputMethodManager = (InputMethodManager) view.getContext()
-                .getSystemService(Context.INPUT_METHOD_SERVICE);
-        inputMethodManager.hideSoftInputFromWindow(view.getWindowToken(), 0);
-    }
-
-    public static void applyLocale(Context context) {
-        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
-
-        if (sharedPreferences.contains(AppSettingsFragment.LANGUAGE_PREF_KEY)) {
-            Locale contextLocale = context.getResources().getConfiguration().locale;
-            String contextLanguage = contextLocale.getLanguage();
-            contextLanguage = LanguageUtils.patchDeviceLanguageCode(contextLanguage);
-            String contextCountry = contextLocale.getCountry();
-            String locale = sharedPreferences.getString(AppSettingsFragment.LANGUAGE_PREF_KEY, "");
-
-            if (!TextUtils.isEmpty(contextCountry)) {
-                contextLanguage += "_" + contextCountry;
-            }
-
-            if (!locale.equals(contextLanguage)) {
-                Resources resources = context.getResources();
-                Configuration conf = resources.getConfiguration();
-                conf.locale = new Locale(locale);
-                resources.updateConfiguration(conf, resources.getDisplayMetrics());
-            }
-        }
-    }
-
     public static Context getThemedContext(Context context) {
         if (context instanceof AppCompatActivity) {
-            ActionBar actionBar = ((AppCompatActivity)context).getSupportActionBar();
+            ActionBar actionBar = ((AppCompatActivity) context).getSupportActionBar();
             if (actionBar != null) {
                 return actionBar.getThemedContext();
             }
@@ -152,15 +117,22 @@ public class WPActivityUtils {
         return !emailApps.isEmpty();
     }
 
+    public static void openEmailClient(Context context) {
+        Intent intent = new Intent(Intent.ACTION_MAIN);
+        intent.addCategory(Intent.CATEGORY_APP_EMAIL);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(intent);
+    }
+
     public static void disableComponent(Context context, Class<?> klass) {
         PackageManager pm = context.getPackageManager();
         pm.setComponentEnabledSetting(new ComponentName(context, klass),
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+                                      PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
     }
 
     public static void enableComponent(Context context, Class<?> klass) {
         PackageManager pm = context.getPackageManager();
         pm.setComponentEnabledSetting(new ComponentName(context, klass),
-                PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
+                                      PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
     }
 }

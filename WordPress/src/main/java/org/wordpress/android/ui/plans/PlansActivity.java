@@ -3,11 +3,13 @@ package org.wordpress.android.ui.plans;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.annotation.TargetApi;
+import android.content.Context;
 import android.graphics.Point;
 import android.os.Build;
 import android.os.Bundle;
 import android.support.design.widget.TabLayout;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.view.ViewCompat;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
@@ -19,7 +21,6 @@ import android.view.ViewTreeObserver;
 import android.view.animation.AccelerateInterpolator;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.Toast;
 
 import org.wordpress.android.R;
 import org.wordpress.android.WordPress;
@@ -33,7 +34,9 @@ import org.wordpress.android.util.AniUtils;
 import org.wordpress.android.util.AppLog;
 import org.wordpress.android.util.AppLog.T;
 import org.wordpress.android.util.DisplayUtils;
+import org.wordpress.android.util.LocaleManager;
 import org.wordpress.android.util.NetworkUtils;
+import org.wordpress.android.util.ToastUtils;
 import org.wordpress.android.util.UrlUtils;
 import org.wordpress.android.widgets.WPViewPager;
 
@@ -59,6 +62,11 @@ public class PlansActivity extends AppCompatActivity {
     @Inject AccountStore mSiteStore;
 
     @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(LocaleManager.setLocale(newBase));
+    }
+
+    @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         ((WordPress) getApplication()).component().inject(this);
@@ -77,7 +85,7 @@ public class PlansActivity extends AppCompatActivity {
 
         if (mSelectedSite == null) {
             AppLog.e(T.PLANS, "Selected site is null");
-            Toast.makeText(this, R.string.plans_loading_error, Toast.LENGTH_LONG).show();
+            ToastUtils.showToast(this, R.string.plans_loading_error, ToastUtils.Duration.LONG);
             finish();
             return;
         }
@@ -110,7 +118,7 @@ public class PlansActivity extends AppCompatActivity {
                 return;
             }
             if (!PlanUpdateService.startService(this, mSelectedSite)) {
-                Toast.makeText(this, R.string.plans_loading_error, Toast.LENGTH_LONG).show();
+                ToastUtils.showToast(this, R.string.plans_loading_error, ToastUtils.Duration.LONG);
                 finish();
                 return;
             }
@@ -151,7 +159,7 @@ public class PlansActivity extends AppCompatActivity {
     private void setupPlansUI() {
         if (mAvailablePlans == null || mAvailablePlans.length == 0) {
             // This should never be called with empty plans.
-            Toast.makeText(PlansActivity.this, R.string.plans_loading_error, Toast.LENGTH_LONG).show();
+            ToastUtils.showToast(PlansActivity.this, R.string.plans_loading_error, ToastUtils.Duration.LONG);
             finish();
             return;
         }
@@ -176,7 +184,8 @@ public class PlansActivity extends AppCompatActivity {
                     LinearLayout tabFirstChild = (LinearLayout) mTabLayout.getChildAt(0);
                     for (int i = 0; i < mTabLayout.getTabCount(); i++) {
                         LinearLayout tabView = (LinearLayout) (tabFirstChild.getChildAt(i));
-                        tabLayoutWidth += (tabView.getMeasuredWidth() + tabView.getPaddingLeft() + tabView.getPaddingRight());
+                        tabLayoutWidth += (tabView.getMeasuredWidth() + ViewCompat.getPaddingStart(tabView)
+                                           + ViewCompat.getPaddingEnd(tabView));
                     }
 
                     int displayWidth = DisplayUtils.getDisplayPixelWidth(PlansActivity.this);
@@ -219,7 +228,8 @@ public class PlansActivity extends AppCompatActivity {
                 int centerX = pt.x / 2;
                 int centerY = pt.y / 2;
 
-                Animator anim = ViewAnimationUtils.createCircularReveal(mViewPager, centerX, centerY, startRadius, endRadius);
+                Animator anim = ViewAnimationUtils.createCircularReveal(mViewPager, centerX, centerY, startRadius,
+                                                                        endRadius);
                 anim.setDuration(getResources().getInteger(android.R.integer.config_longAnimTime));
                 anim.setInterpolator(new AccelerateInterpolator());
 
@@ -303,7 +313,7 @@ public class PlansActivity extends AppCompatActivity {
      */
     @SuppressWarnings("unused")
     public void onEventMainThread(PlanEvents.PlansUpdateFailed event) {
-        Toast.makeText(PlansActivity.this, R.string.plans_loading_error, Toast.LENGTH_LONG).show();
+        ToastUtils.showToast(PlansActivity.this, R.string.plans_loading_error, ToastUtils.Duration.LONG);
         finish();
     }
 

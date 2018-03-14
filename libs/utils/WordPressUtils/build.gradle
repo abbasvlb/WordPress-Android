@@ -1,10 +1,11 @@
 buildscript {
     repositories {
         jcenter()
+        google()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:2.3.1'
-        classpath 'com.novoda:bintray-release:0.3.4'
+        classpath 'com.android.tools.build:gradle:3.0.1'
+        classpath 'com.novoda:bintray-release:0.5.0'
     }
 }
 
@@ -12,26 +13,30 @@ apply plugin: 'com.android.library'
 apply plugin: 'com.novoda.bintray-release'
 
 repositories {
+    google()
     jcenter()
 }
 
 dependencies {
-    compile 'org.apache.commons:commons-lang3:3.5'
-    compile 'com.mcxiaoke.volley:library:1.0.18'
-    compile 'com.android.support:support-v13:25.1.1'
+    implementation 'org.apache.commons:commons-text:1.1'
+    implementation 'com.mcxiaoke.volley:library:1.0.18'
+    implementation 'com.android.support:support-v13:26.1.0'
+    implementation 'com.android.support:design:26.1.0'
+    implementation 'com.android.support:recyclerview-v7:26.1.0'
+    implementation 'org.greenrobot:eventbus:3.0.0'
+
+    lintChecks 'org.wordpress:lint:1.0.0'
 }
 
 android {
     useLibrary 'org.apache.http.legacy'
 
-    publishNonDefault true
-
-    compileSdkVersion 25
-    buildToolsVersion "25.0.2"
+    compileSdkVersion 26
+    buildToolsVersion '26.0.2'
 
     defaultConfig {
-        versionName "1.15.0"
-        minSdkVersion 14
+        versionName "1.20.0"
+        minSdkVersion 15
         targetSdkVersion 25
     }
 }

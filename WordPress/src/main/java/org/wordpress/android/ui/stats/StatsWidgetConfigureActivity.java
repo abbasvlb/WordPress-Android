@@ -14,15 +14,16 @@ import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.Toast;
 
 import org.wordpress.android.R;
 import org.wordpress.android.WordPress;
 import org.wordpress.android.fluxc.model.SiteModel;
 import org.wordpress.android.fluxc.store.AccountStore;
 import org.wordpress.android.fluxc.store.SiteStore;
+import org.wordpress.android.ui.main.SitePickerAdapter.SiteRecord;
 import org.wordpress.android.util.AppLog;
 import org.wordpress.android.util.FluxCUtils;
+import org.wordpress.android.util.LocaleManager;
 import org.wordpress.android.util.SiteUtils;
 import org.wordpress.android.util.ToastUtils;
 
@@ -30,13 +31,17 @@ import javax.inject.Inject;
 
 public class StatsWidgetConfigureActivity extends AppCompatActivity
         implements StatsWidgetConfigureAdapter.OnSiteClickListener {
-
     private StatsWidgetConfigureAdapter mAdapter;
     private RecyclerView mRecycleView;
     private int mAppWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
 
     @Inject AccountStore mAccountStore;
     @Inject SiteStore mSiteStore;
+
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(LocaleManager.setLocale(newBase));
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -51,7 +56,7 @@ public class StatsWidgetConfigureActivity extends AppCompatActivity
                     AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
         }
 
-        // Set the result to CANCELED.  This will cause the widget host to cancel out of the widget
+        // Set the result to CANCELED. This will cause the widget host to cancel out of the widget
         // placement if they press the back button.
         setResult(RESULT_CANCELED, new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, mAppWidgetId));
 
@@ -72,7 +77,8 @@ public class StatsWidgetConfigureActivity extends AppCompatActivity
         // If no visible blogs
         int visibleSites = mSiteStore.getVisibleSitesCount();
         if (mSiteStore.getVisibleSitesCount() == 0) {
-            ToastUtils.showToast(getBaseContext(), R.string.stats_widget_error_no_visible_blog, ToastUtils.Duration.LONG);
+            ToastUtils
+                    .showToast(getBaseContext(), R.string.stats_widget_error_no_visible_blog, ToastUtils.Duration.LONG);
             finish();
             return;
         }
@@ -99,6 +105,7 @@ public class StatsWidgetConfigureActivity extends AppCompatActivity
         }
         return super.onOptionsItemSelected(item);
     }
+
     private void setupRecycleView() {
         mRecycleView = (RecyclerView) findViewById(R.id.recycler_view);
         mRecycleView.setLayoutManager(new LinearLayoutManager(this));
@@ -130,8 +137,8 @@ public class StatsWidgetConfigureActivity extends AppCompatActivity
     }
 
     @Override
-    public void onSiteClick(StatsWidgetConfigureAdapter.SiteRecord site) {
-        addWidgetToScreenAndFinish(site.localId);
+    public void onSiteClick(SiteRecord site) {
+        addWidgetToScreenAndFinish(site.getLocalId());
     }
 
     private void addWidgetToScreenAndFinish(int localID) {
@@ -139,7 +146,7 @@ public class StatsWidgetConfigureActivity extends AppCompatActivity
 
         if (site == null) {
             AppLog.e(AppLog.T.STATS, "The blog with local_blog_id " + localID + " cannot be loaded from the DB.");
-            Toast.makeText(this, R.string.stats_no_blog, Toast.LENGTH_LONG).show();
+            ToastUtils.showToast(this, R.string.stats_no_blog, ToastUtils.Duration.LONG);
             finish();
             return;
         }
@@ -149,7 +156,7 @@ public class StatsWidgetConfigureActivity extends AppCompatActivity
             // Or a Jetpack blog whose options are not yet synched in the app
             // In both of these cases show a generic message that encourages the user to refresh
             // the blog within the app. There are so many different paths here that's better to handle them in the app.
-            Toast.makeText(this, R.string.stats_widget_error_jetpack_no_blogid, Toast.LENGTH_LONG).show();
+            ToastUtils.showToast(this, R.string.stats_widget_error_jetpack_no_blogid, ToastUtils.Duration.LONG);
             finish();
             return;
         }

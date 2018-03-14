@@ -77,7 +77,7 @@ function printVersion() {
 function checkGradleProperties() {
   /bin/echo -n "Check gradle.properties..."
   checksum=`cat gradle.properties | grep -v "^wp.debug." | grep "^wp."|tr "[A-Z]" "[a-z]" | sed "s/ //g" | sort | sha1sum | cut -d- -f1 | sed "s/ //g"`
-  known_checksum="4058cdf3d784e4b79f63514d4780e92c28b5ab78"
+  known_checksum="fdb31db64e23a859935960ace1fda847d209113b"
   if [ x$checksum != x$known_checksum ]; then
     pFail
     exit 5
@@ -85,11 +85,10 @@ function checkGradleProperties() {
   pOk
 }
 
-function checkKeystore() {
-  keystore=`cat gradle.properties | grep storeFile | cut -d= -f 2`
-  /bin/echo -n "Check keystore file in $keystore..."
-  checksum=`cd WordPress && sha1sum $keystore | cut -d" " -f1`
-  known_checksum="7b20577a43b217b668fa875693c006d693679c0c"
+function checkFileAgainstHash() {
+  filename=$1
+  known_checksum=$2
+  checksum=`sha1sum "$filename" | cut -d" " -f1`
   if [ x$checksum != x$known_checksum ]; then
     pFail
     exit 6
@@ -97,10 +96,22 @@ function checkKeystore() {
   pOk
 }
 
+function checkKeystore() {
+  keystore=`cat gradle.properties | grep storeFile | cut -d= -f 2 | sed -e 's/^[ \t]*//'`
+  /bin/echo -n "Check Keystore..."
+  checkFileAgainstHash "WordPress/$keystore" 7b20577a43b217b668fa875693c006d693679c0c
+}
+
+function checkGoogleServiceConfig() {
+  /bin/echo -n "Check Google Services configuration..."
+  checkFileAgainstHash WordPress/google-services.json 633ce74402644df1073d97260cdca6d33abfc6df
+}
+
 checkNewLanguages
 checkENStrings
 checkGradleProperties
 checkKeystore
+checkGoogleServiceConfig
 printVersion
 # checkDeviceToTest
 # runConnectedTests

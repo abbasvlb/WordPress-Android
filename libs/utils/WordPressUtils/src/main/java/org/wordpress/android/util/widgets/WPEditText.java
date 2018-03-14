@@ -1,5 +1,6 @@
 package org.wordpress.android.util.widgets;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
@@ -9,10 +10,11 @@ import android.widget.EditText;
  * @deprecated This custom EditText is used solely by the "legacy" editor in WP Android.
  * It will be removed when we drop the legacy editor and should not be used in new code.
  */
+@SuppressLint("AppCompatCustomView")
 @Deprecated
 public class WPEditText extends EditText {
     private EditTextImeBackListener mOnImeBack;
-    private OnSelectionChangedListener onSelectionChangedListener;
+    private OnSelectionChangedListener mOnSelectionChangedListener;
 
     public WPEditText(Context context) {
         super(context);
@@ -28,17 +30,18 @@ public class WPEditText extends EditText {
 
     @Override
     protected void onSelectionChanged(int selStart, int selEnd) {
-        if (onSelectionChangedListener != null) {
-            onSelectionChangedListener.onSelectionChanged();
+        if (mOnSelectionChangedListener != null) {
+            mOnSelectionChangedListener.onSelectionChanged();
         }
     }
 
     @Override
     public boolean onKeyPreIme(int keyCode, KeyEvent event) {
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK
-                && event.getAction() == KeyEvent.ACTION_UP) {
-            if (mOnImeBack != null)
+            && event.getAction() == KeyEvent.ACTION_UP) {
+            if (mOnImeBack != null) {
                 mOnImeBack.onImeBack(this, this.getText().toString());
+            }
         }
 
         return super.onKeyPreIme(keyCode, event);
@@ -49,14 +52,14 @@ public class WPEditText extends EditText {
     }
 
     public interface EditTextImeBackListener {
-        public abstract void onImeBack(WPEditText ctrl, String text);
+        void onImeBack(WPEditText ctrl, String text);
     }
 
     public void setOnSelectionChangedListener(OnSelectionChangedListener listener) {
-        onSelectionChangedListener = listener;
+        mOnSelectionChangedListener = listener;
     }
 
     public interface OnSelectionChangedListener {
-        public abstract void onSelectionChanged();
+        void onSelectionChanged();
     }
 }

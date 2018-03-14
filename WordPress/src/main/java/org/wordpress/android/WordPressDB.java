@@ -2,16 +2,13 @@ package org.wordpress.android;
 
 import android.content.ContentValues;
 import android.content.Context;
-import android.database.Cursor;
-import android.database.DatabaseUtils;
 import android.database.sqlite.SQLiteDatabase;
-import android.database.sqlite.SQLiteException;
 
 import org.wordpress.android.datasets.NotificationsTable;
 import org.wordpress.android.datasets.PeopleTable;
 import org.wordpress.android.datasets.SiteSettingsTable;
 import org.wordpress.android.datasets.SuggestionTable;
-import org.wordpress.android.models.Theme;
+import org.wordpress.android.models.SiteSettingsModel;
 import org.wordpress.android.ui.prefs.AppPrefs;
 import org.wordpress.android.util.AppLog;
 import org.wordpress.android.util.AppLog.T;
@@ -24,48 +21,36 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 public class WordPressDB {
-    private static final String COLUMN_NAME_ID = "_id";
+    private static final int DATABASE_VERSION = 64;
 
-    private static final int DATABASE_VERSION = 55;
 
     // Warning if you rename DATABASE_NAME, that could break previous App backups (see: xml/backup_scheme.xml)
     private static final String DATABASE_NAME = "wordpress";
     private static final String NOTES_TABLE = "notes";
-
     private static final String THEMES_TABLE = "themes";
-    private static final String CREATE_TABLE_THEMES = "create table if not exists themes ("
-            + COLUMN_NAME_ID + " integer primary key autoincrement, "
-            + Theme.ID + " text, "
-            + Theme.AUTHOR + " text, "
-            + Theme.SCREENSHOT + " text, "
-            + Theme.AUTHOR_URI + " text, "
-            + Theme.DEMO_URI + " text, "
-            + Theme.NAME + " text, "
-            + Theme.STYLESHEET + " text, "
-            + Theme.PRICE + " text, "
-            + Theme.BLOG_ID + " text, "
-            + Theme.IS_CURRENT + " boolean default false);";
 
     // add new table for QuickPress homescreen shortcuts
-    private static final String CREATE_TABLE_QUICKPRESS_SHORTCUTS = "create table if not exists quickpress_shortcuts (id integer primary key autoincrement, accountId text, name text);";
+    private static final String CREATE_TABLE_QUICKPRESS_SHORTCUTS =
+            "create table if not exists quickpress_shortcuts (id integer primary key autoincrement, "
+            + "accountId text, name text);";
     private static final String QUICKPRESS_SHORTCUTS_TABLE = "quickpress_shortcuts";
 
     private static final String DROP_TABLE_PREFIX = "DROP TABLE IF EXISTS ";
 
-    private SQLiteDatabase db;
+    private SQLiteDatabase mDb;
 
+    @SuppressWarnings({"FallThrough"})
     public WordPressDB(Context ctx) {
-        db = ctx.openOrCreateDatabase(DATABASE_NAME, 0, null);
+        mDb = ctx.openOrCreateDatabase(DATABASE_NAME, 0, null);
 
         // Create tables if they don't exist
-        db.execSQL(CREATE_TABLE_QUICKPRESS_SHORTCUTS);
-        db.execSQL(CREATE_TABLE_THEMES);
-        SiteSettingsTable.createTable(db);
-        SuggestionTable.createTables(db);
-        NotificationsTable.createTables(db);
+        mDb.execSQL(CREATE_TABLE_QUICKPRESS_SHORTCUTS);
+        SiteSettingsTable.createTable(mDb);
+        SuggestionTable.createTables(mDb);
+        NotificationsTable.createTables(mDb);
 
         // Update tables for new installs and app updates
-        int currentVersion = db.getVersion();
+        int currentVersion = mDb.getVersion();
         boolean isNewInstall = (currentVersion == 0);
 
         if (!isNewInstall && currentVersion != DATABASE_VERSION) {
@@ -115,20 +100,21 @@ public class WordPressDB {
             case 24:
                 currentVersion++;
             case 25:
-                //ver 26 "virtually" remove columns 'lastCommentId' and 'runService' from the DB
-                //SQLite supports a limited subset of ALTER TABLE.
-                //The ALTER TABLE command in SQLite allows the user to rename a table or to add a new column to an existing table.
-                //It is not possible to rename a column, remove a column, or add or remove constraints from a table.
+                // ver 26 "virtually" remove columns 'lastCommentId' and 'runService' from the DB
+                // SQLite supports a limited subset of ALTER TABLE.
+                // The ALTER TABLE command in SQLite allows the user to rename a table or to add a new column to
+                // an existing table. It is not possible to rename a column, remove a column, or add or remove
+                // constraints from a table.
                 currentVersion++;
             case 26:
                 // Drop the notes table, no longer needed with Simperium.
-                db.execSQL(DROP_TABLE_PREFIX + NOTES_TABLE);
+                mDb.execSQL(DROP_TABLE_PREFIX + NOTES_TABLE);
                 currentVersion++;
             case 27:
                 currentVersion++;
             case 28:
                 // Remove WordPress.com credentials
-                // NOPE: removeDotComCredentials();
+                // NOPE: removeWPComCredentials();
                 currentVersion++;
             case 29:
                 currentVersion++;
@@ -153,7 +139,6 @@ public class WordPressDB {
                 ctx.deleteDatabase("simperium-store");
                 currentVersion++;
             case 37:
-                resetThemeTable();
                 currentVersion++;
             case 38:
                 currentVersion++;
@@ -168,7 +153,7 @@ public class WordPressDB {
             case 43:
                 currentVersion++;
             case 44:
-                PeopleTable.createTables(db);
+                PeopleTable.createTables(mDb);
                 currentVersion++;
             case 45:
                 currentVersion++;
@@ -177,10 +162,10 @@ public class WordPressDB {
                 AppPrefs.setVisualEditorEnabled(true);
                 currentVersion++;
             case 47:
-                PeopleTable.reset(db);
+                PeopleTable.reset(mDb);
                 currentVersion++;
             case 48:
-                PeopleTable.createViewersTable(db);
+                PeopleTable.createViewersTable(mDb);
                 currentVersion++;
             case 49:
                 // Delete simperium DB since we're removing Simperium from the app.
@@ -190,34 +175,62 @@ public class WordPressDB {
                 // fix #5373 - no op
                 currentVersion++;
             case 51:
-                SiteSettingsTable.addOptimizedImageToSiteSettingsTable(db);
+                // no op - was SiteSettingsTable.addOptimizedImageToSiteSettingsTable(db);
                 currentVersion++;
             case 52:
-                // fix #5373 for users who already upgraded to 52 but missed the first migration
-                try {
-                    SiteSettingsTable.addOptimizedImageToSiteSettingsTable(db);
-                } catch(SQLiteException e) {
-                    // ignore "duplicate column" exception
-                }
+                // no op - was used for old image optimization settings
                 currentVersion++;
             case 53:
                 // Clean up empty cache files caused by #5417
                 clearEmptyCacheFiles(ctx);
                 currentVersion++;
             case 54:
-                SiteSettingsTable.addImageResizeWidthAndQualityToSiteSettingsTable(db);
+                // no op - was used for old image optimization settings
+                currentVersion++;
+            case 55:
+                SiteSettingsTable.addSharingColumnsToSiteSettingsTable(mDb);
+                currentVersion++;
+            case 56:
+                // no op - was used for old video optimization settings
+                currentVersion++;
+            case 57:
+                // Migrate media optimization settings
+                SiteSettingsTable.migrateMediaOptimizeSettings(mDb);
+                currentVersion++;
+            case 58:
+                // ThemeStore merged, remove deprecated themes tables
+                mDb.execSQL(DROP_TABLE_PREFIX + THEMES_TABLE);
+                currentVersion++;
+            case 59:
+                // Enable Aztec for all users
+                AppPrefs.setVisualEditorEnabled(false);
+                AppPrefs.setAztecEditorEnabled(true);
+                currentVersion++;
+            case 60:
+                // add Start of Week site setting as part of #betterjetpackxp
+                mDb.execSQL(SiteSettingsModel.ADD_START_OF_WEEK);
+                currentVersion++;
+            case 61:
+                // add date & time format site setting as part of #betterjetpackxp
+                mDb.execSQL(SiteSettingsModel.ADD_TIME_FORMAT);
+                mDb.execSQL(SiteSettingsModel.ADD_DATE_FORMAT);
+                currentVersion++;
+            case 62:
+                // add timezone and posts per page site setting as part of #betterjetpackxp
+                mDb.execSQL(SiteSettingsModel.ADD_TIMEZONE);
+                mDb.execSQL(SiteSettingsModel.ADD_POSTS_PER_PAGE);
+                currentVersion++;
+            case 63:
+                // add AMP site setting as part of #betterjetpackxp
+                mDb.execSQL(SiteSettingsModel.ADD_AMP_SUPPORTED);
+                mDb.execSQL(SiteSettingsModel.ADD_AMP_ENABLED);
                 currentVersion++;
         }
-        db.setVersion(DATABASE_VERSION);
-    }
-
-    private void resetThemeTable() {
-        db.execSQL(DROP_TABLE_PREFIX + THEMES_TABLE);
-        db.execSQL(CREATE_TABLE_THEMES);
+        mDb.setVersion(DATABASE_VERSION);
     }
 
     public SQLiteDatabase getDatabase() {
-        return db;
+        return mDb;
     }
 
     public static void deleteDatabase(Context ctx) {
@@ -230,133 +243,19 @@ public class WordPressDB {
         values.put("name", name);
         boolean returnValue = false;
         synchronized (this) {
-            returnValue = db.insert(QUICKPRESS_SHORTCUTS_TABLE, null, values) > 0;
+            returnValue = mDb.insert(QUICKPRESS_SHORTCUTS_TABLE, null, values) > 0;
         }
 
         return (returnValue);
-    }
-
-    public boolean saveTheme(Theme theme) {
-        boolean returnValue = false;
-
-        ContentValues values = new ContentValues();
-        values.put(Theme.ID, theme.getId());
-        values.put(Theme.AUTHOR, theme.getAuthor());
-        values.put(Theme.SCREENSHOT, theme.getScreenshot());
-        values.put(Theme.AUTHOR_URI, theme.getAuthorURI());
-        values.put(Theme.DEMO_URI, theme.getDemoURI());
-        values.put(Theme.NAME, theme.getName());
-        values.put(Theme.STYLESHEET, theme.getStylesheet());
-        values.put(Theme.PRICE, theme.getPrice());
-        values.put(Theme.BLOG_ID, theme.getBlogId());
-        values.put(Theme.IS_CURRENT, theme.getIsCurrent() ? 1 : 0);
-
-        synchronized (this) {
-            int result = db.update(
-                    THEMES_TABLE,
-                    values,
-                    Theme.ID + "=?",
-                    new String[]{theme.getId()});
-            if (result == 0)
-                returnValue = db.insert(THEMES_TABLE, null, values) > 0;
-        }
-
-        return (returnValue);
-    }
-
-    public Cursor getThemesAll(String blogId) {
-        String[] columns = {COLUMN_NAME_ID, Theme.ID, Theme.NAME, Theme.SCREENSHOT, Theme.PRICE, Theme.IS_CURRENT};
-        String[] selection = {blogId};
-
-        return db.query(THEMES_TABLE, columns, Theme.BLOG_ID + "=?", selection, null, null, null);
-    }
-
-    public Cursor getThemesFree(String blogId) {
-        String[] columns = {COLUMN_NAME_ID, Theme.ID, Theme.NAME, Theme.SCREENSHOT, Theme.PRICE, Theme.IS_CURRENT};
-        String[] selection = {blogId, ""};
-
-        return db.query(THEMES_TABLE, columns, Theme.BLOG_ID + "=? AND " + Theme.PRICE + "=?", selection, null, null, null);
-    }
-
-    public Cursor getThemesPremium(String blogId) {
-        String[] columns = {COLUMN_NAME_ID, Theme.ID, Theme.NAME, Theme.SCREENSHOT, Theme.PRICE, Theme.IS_CURRENT};
-        String[] selection = {blogId, ""};
-
-        return db.query(THEMES_TABLE, columns, Theme.BLOG_ID + "=? AND " + Theme.PRICE + "!=?", selection, null, null, null);
-    }
-
-    public String getCurrentThemeId(String blogId) {
-        String[] selection = {blogId, String.valueOf(1)};
-        String currentThemeId;
-        try {
-            currentThemeId = DatabaseUtils.stringForQuery(db, "SELECT " + Theme.ID + " FROM " + THEMES_TABLE + " WHERE " + Theme.BLOG_ID + "=? and " + Theme.IS_CURRENT + "=?", selection);
-        } catch (SQLiteException e) {
-            currentThemeId = "";
-        }
-
-        return currentThemeId;
-    }
-
-    public void setCurrentTheme(String blogId, String id) {
-        // update any old themes that are set to true to false
-        ContentValues values = new ContentValues();
-        values.put(Theme.IS_CURRENT, false);
-        db.update(THEMES_TABLE, values, Theme.BLOG_ID + "=?", new String[] { blogId });
-
-        values = new ContentValues();
-        values.put(Theme.IS_CURRENT, true);
-        db.update(THEMES_TABLE, values, Theme.BLOG_ID + "=? AND " + Theme.ID + "=?", new String[] { blogId, id });
-    }
-
-    public int getThemeCount(String blogId) {
-        return getThemesAll(blogId).getCount();
-    }
-
-    public Cursor getThemes(String blogId, String searchTerm) {
-        String[] columns = {COLUMN_NAME_ID, Theme.ID, Theme.NAME, Theme.SCREENSHOT, Theme.PRICE, Theme.IS_CURRENT};
-        String[] selection = {blogId, "%" + searchTerm + "%"};
-
-        return db.query(THEMES_TABLE, columns, Theme.BLOG_ID + "=? AND " + Theme.NAME + " LIKE ?", selection, null, null, null);
-    }
-
-    public Theme getTheme(String blogId, String themeId) {
-        String[] columns = {COLUMN_NAME_ID, Theme.ID, Theme.AUTHOR, Theme.SCREENSHOT, Theme.AUTHOR_URI, Theme.DEMO_URI, Theme.NAME, Theme.STYLESHEET, Theme.PRICE, Theme.IS_CURRENT};
-        String[] selection = {blogId, themeId};
-        Cursor cursor = db.query(THEMES_TABLE, columns, Theme.BLOG_ID + "=? AND " + Theme.ID + "=?", selection, null, null, null);
-
-        if (cursor.moveToFirst()) {
-            String id = cursor.getString(cursor.getColumnIndex(Theme.ID));
-            String author = cursor.getString(cursor.getColumnIndex(Theme.AUTHOR));
-            String screenshot = cursor.getString(cursor.getColumnIndex(Theme.SCREENSHOT));
-            String authorURI = cursor.getString(cursor.getColumnIndex(Theme.AUTHOR_URI));
-            String demoURI = cursor.getString(cursor.getColumnIndex(Theme.DEMO_URI));
-            String name = cursor.getString(cursor.getColumnIndex(Theme.NAME));
-            String stylesheet = cursor.getString(cursor.getColumnIndex(Theme.STYLESHEET));
-            String price = cursor.getString(cursor.getColumnIndex(Theme.PRICE));
-            boolean isCurrent = cursor.getInt(cursor.getColumnIndex(Theme.IS_CURRENT)) > 0;
-
-            Theme theme = new Theme(id, author, screenshot, authorURI, demoURI, name, stylesheet, price, blogId, isCurrent);
-            cursor.close();
-
-            return theme;
-        } else {
-            cursor.close();
-            return null;
-        }
-    }
-
-    public Theme getCurrentTheme(String blogId) {
-        String currentThemeId = getCurrentThemeId(blogId);
-
-        return getTheme(blogId, currentThemeId);
     }
 
     /*
      * used during development to copy database to SD card so we can access it via DDMS
      */
     protected void copyDatabase() {
-        String copyFrom = db.getPath();
-        String copyTo = WordPress.getContext().getExternalFilesDir(null).getAbsolutePath() + "/" + DATABASE_NAME + ".db";
+        String copyFrom = mDb.getPath();
+        String copyTo =
+                WordPress.getContext().getExternalFilesDir(null).getAbsolutePath() + "/" + DATABASE_NAME + ".db";
 
         try {
             InputStream input = new FileInputStream(copyFrom);
@@ -364,8 +263,9 @@ public class WordPressDB {
 
             byte[] buffer = new byte[1024];
             int length;
-            while ((length = input.read(buffer)) > 0)
+            while ((length = input.read(buffer)) > 0) {
                 output.write(buffer, 0, length);
+            }
 
             output.flush();
             output.close();

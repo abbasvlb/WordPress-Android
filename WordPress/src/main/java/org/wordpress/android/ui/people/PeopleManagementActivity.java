@@ -4,6 +4,7 @@ import android.app.AlertDialog;
 import android.app.Fragment;
 import android.app.FragmentManager;
 import android.app.FragmentTransaction;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.os.Bundle;
 import android.support.v7.app.ActionBar;
@@ -11,16 +12,23 @@ import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.view.MenuItem;
 
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
 import org.wordpress.android.R;
 import org.wordpress.android.WordPress;
 import org.wordpress.android.analytics.AnalyticsTracker;
 import org.wordpress.android.datasets.PeopleTable;
+import org.wordpress.android.fluxc.Dispatcher;
+import org.wordpress.android.fluxc.generated.SiteActionBuilder;
 import org.wordpress.android.fluxc.model.SiteModel;
 import org.wordpress.android.fluxc.store.AccountStore;
+import org.wordpress.android.fluxc.store.SiteStore;
 import org.wordpress.android.models.PeopleListFilter;
 import org.wordpress.android.models.Person;
 import org.wordpress.android.ui.people.utils.PeopleUtils;
 import org.wordpress.android.util.AnalyticsUtils;
+import org.wordpress.android.util.AppLog;
+import org.wordpress.android.util.LocaleManager;
 import org.wordpress.android.util.NetworkUtils;
 import org.wordpress.android.util.ToastUtils;
 
@@ -45,7 +53,8 @@ public class PeopleManagementActivity extends AppCompatActivity
 
     private static final String KEY_USERS_FETCH_REQUEST_IN_PROGRESS = "users-fetch-request-in-progress";
     private static final String KEY_FOLLOWERS_FETCH_REQUEST_IN_PROGRESS = "followers-fetch-request-in-progress";
-    private static final String KEY_EMAIL_FOLLOWERS_FETCH_REQUEST_IN_PROGRESS = "email-followers-fetch-request-in-progress";
+    private static final String KEY_EMAIL_FOLLOWERS_FETCH_REQUEST_IN_PROGRESS =
+            "email-followers-fetch-request-in-progress";
     private static final String KEY_VIEWERS_FETCH_REQUEST_IN_PROGRESS = "viewers-fetch-request-in-progress";
 
     private static final String KEY_HAS_REFRESHED_USERS = "has-refreshed-users";
@@ -78,14 +87,21 @@ public class PeopleManagementActivity extends AppCompatActivity
     private int mFollowersLastFetchedPage;
     private int mEmailFollowersLastFetchedPage;
 
+    @Inject Dispatcher mDispatcher;
     @Inject AccountStore mAccountStore;
 
     private SiteModel mSite;
 
     @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(LocaleManager.setLocale(newBase));
+    }
+
+    @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         ((WordPress) getApplication()).component().inject(this);
+        mDispatcher.register(this);
 
         setContentView(R.layout.people_management_activity);
         if (savedInstanceState == null) {
@@ -99,6 +115,9 @@ public class PeopleManagementActivity extends AppCompatActivity
             finish();
             return;
         }
+
+        // Fetch the user roles to get ready
+        mDispatcher.dispatch(SiteActionBuilder.newFetchUserRolesAction(mSite));
 
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
@@ -145,8 +164,8 @@ public class PeopleManagementActivity extends AppCompatActivity
 
 
             fragmentManager.beginTransaction()
-                    .add(R.id.fragment_container, peopleListFragment, KEY_PEOPLE_LIST_FRAGMENT)
-                    .commit();
+                           .add(R.id.fragment_container, peopleListFragment, KEY_PEOPLE_LIST_FRAGMENT)
+                           .commit();
         } else {
             mUsersEndOfListReached = savedInstanceState.getBoolean(KEY_USERS_END_OF_LIST_REACHED);
             mFollowersEndOfListReached = savedInstanceState.getBoolean(KEY_FOLLOWERS_END_OF_LIST_REACHED);
@@ -160,7 +179,8 @@ public class PeopleManagementActivity extends AppCompatActivity
 
             mUsersFetchRequestInProgress = savedInstanceState.getBoolean(KEY_USERS_FETCH_REQUEST_IN_PROGRESS);
             mFollowersFetchRequestInProgress = savedInstanceState.getBoolean(KEY_FOLLOWERS_FETCH_REQUEST_IN_PROGRESS);
-            mEmailFollowersFetchRequestInProgress = savedInstanceState.getBoolean(KEY_EMAIL_FOLLOWERS_FETCH_REQUEST_IN_PROGRESS);
+            mEmailFollowersFetchRequestInProgress =
+                    savedInstanceState.getBoolean(KEY_EMAIL_FOLLOWERS_FETCH_REQUEST_IN_PROGRESS);
             mViewersFetchRequestInProgress = savedInstanceState.getBoolean(KEY_VIEWERS_FETCH_REQUEST_IN_PROGRESS);
 
             mFollowersLastFetchedPage = savedInstanceState.getInt(KEY_FOLLOWERS_LAST_FETCHED_PAGE);
@@ -180,7 +200,7 @@ public class PeopleManagementActivity extends AppCompatActivity
     }
 
     @Override
-    public void onSaveInstanceState(Bundle outState){
+    public void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         outState.putSerializable(WordPress.SITE, mSite);
 
@@ -291,8 +311,8 @@ public class PeopleManagementActivity extends AppCompatActivity
                 }
                 mUsersFetchRequestInProgress = false;
                 ToastUtils.showToast(PeopleManagementActivity.this,
-                        R.string.error_fetch_users_list,
-                        ToastUtils.Duration.SHORT);
+                                     R.string.error_fetch_users_list,
+                                     ToastUtils.Duration.SHORT);
             }
         });
 
@@ -333,8 +353,8 @@ public class PeopleManagementActivity extends AppCompatActivity
                 }
                 mFollowersFetchRequestInProgress = false;
                 ToastUtils.showToast(PeopleManagementActivity.this,
-                        R.string.error_fetch_followers_list,
-                        ToastUtils.Duration.SHORT);
+                                     R.string.error_fetch_followers_list,
+                                     ToastUtils.Duration.SHORT);
             }
         });
 
@@ -342,7 +362,8 @@ public class PeopleManagementActivity extends AppCompatActivity
     }
 
     private boolean fetchEmailFollowersList(final SiteModel site, final int page) {
-        if (mEmailFollowersEndOfListReached || mEmailFollowersFetchRequestInProgress || !NetworkUtils.checkConnection(this)) {
+        if (mEmailFollowersEndOfListReached || mEmailFollowersFetchRequestInProgress || !NetworkUtils
+                .checkConnection(this)) {
             return false;
         }
 
@@ -375,8 +396,8 @@ public class PeopleManagementActivity extends AppCompatActivity
                 }
                 mEmailFollowersFetchRequestInProgress = false;
                 ToastUtils.showToast(PeopleManagementActivity.this,
-                        R.string.error_fetch_email_followers_list,
-                        ToastUtils.Duration.SHORT);
+                                     R.string.error_fetch_email_followers_list,
+                                     ToastUtils.Duration.SHORT);
             }
         });
 
@@ -416,8 +437,8 @@ public class PeopleManagementActivity extends AppCompatActivity
                 }
                 mViewersFetchRequestInProgress = false;
                 ToastUtils.showToast(PeopleManagementActivity.this,
-                        R.string.error_fetch_viewers_list,
-                        ToastUtils.Duration.SHORT);
+                                     R.string.error_fetch_viewers_list,
+                                     ToastUtils.Duration.SHORT);
             }
         });
 
@@ -433,7 +454,7 @@ public class PeopleManagementActivity extends AppCompatActivity
 
         if (personDetailFragment == null) {
             personDetailFragment = PersonDetailFragment.newInstance(mAccountStore.getAccount().getUserId(), personID,
-                    localTableBlogID, person.getPersonType());
+                                                                    localTableBlogID, person.getPersonType());
         } else {
             personDetailFragment.setPersonDetails(personID, localTableBlogID);
         }
@@ -453,41 +474,41 @@ public class PeopleManagementActivity extends AppCompatActivity
     }
 
     public void onEventMainThread(RoleChangeDialogFragment.RoleChangeEvent event) {
-        if(!NetworkUtils.checkConnection(this)) {
+        if (!NetworkUtils.checkConnection(this)) {
             return;
         }
 
-        final Person person = PeopleTable.getUser(event.personID, event.localTableBlogId);
-        if (person == null || event.newRole == null || person.getRole() == event.newRole) {
+        final Person person = PeopleTable.getUser(event.getPersonID(), event.getLocalTableBlogId());
+        if (person == null || event.getNewRole() == null || event.getNewRole().equals(person.getRole())) {
             return;
         }
 
         final PersonDetailFragment personDetailFragment = getDetailFragment();
         if (personDetailFragment != null) {
             // optimistically update the role
-            personDetailFragment.changeRole(event.newRole);
+            personDetailFragment.changeRole(event.getNewRole());
         }
 
-        PeopleUtils.updateRole(mSite, person.getPersonID(), event.newRole, event.localTableBlogId,
-                new PeopleUtils.UpdateUserCallback() {
-            @Override
-            public void onSuccess(Person person) {
-                AnalyticsUtils.trackWithSiteDetails(AnalyticsTracker.Stat.PERSON_UPDATED, mSite);
-                PeopleTable.saveUser(person);
-                refreshOnScreenFragmentDetails();
-            }
+        PeopleUtils.updateRole(mSite, person.getPersonID(), event.getNewRole(), event.getLocalTableBlogId(),
+                               new PeopleUtils.UpdateUserCallback() {
+                                   @Override
+                                   public void onSuccess(Person person) {
+                                       AnalyticsUtils.trackWithSiteDetails(AnalyticsTracker.Stat.PERSON_UPDATED, mSite);
+                                       PeopleTable.saveUser(person);
+                                       refreshOnScreenFragmentDetails();
+                                   }
 
-            @Override
-            public void onError() {
-                // change the role back to it's original value
-                if (personDetailFragment != null) {
-                    personDetailFragment.refreshPersonDetails();
-                }
-                ToastUtils.showToast(PeopleManagementActivity.this,
-                        R.string.error_update_role,
-                        ToastUtils.Duration.LONG);
-            }
-        });
+                                   @Override
+                                   public void onError() {
+                                       // change the role back to it's original value
+                                       if (personDetailFragment != null) {
+                                           personDetailFragment.refreshPersonDetails();
+                                       }
+                                       ToastUtils.showToast(PeopleManagementActivity.this,
+                                                            R.string.error_update_role,
+                                                            ToastUtils.Duration.LONG);
+                                   }
+                               });
     }
 
     private void confirmRemovePerson() {
@@ -500,7 +521,7 @@ public class PeopleManagementActivity extends AppCompatActivity
         builder.setTitle(getString(R.string.person_remove_confirmation_title, person.getDisplayName()));
         if (person.getPersonType() == Person.PersonType.USER) {
             builder.setMessage(getString(R.string.user_remove_confirmation_message, person.getDisplayName()));
-        } else if(person.getPersonType() == Person.PersonType.VIEWER) {
+        } else if (person.getPersonType() == Person.PersonType.VIEWER) {
             builder.setMessage(R.string.viewer_remove_confirmation_message);
         } else {
             builder.setMessage(R.string.follower_remove_confirmation_message);
@@ -516,7 +537,7 @@ public class PeopleManagementActivity extends AppCompatActivity
     }
 
     private void removeSelectedPerson() {
-        if(!NetworkUtils.checkConnection(this)) {
+        if (!NetworkUtils.checkConnection(this)) {
             return;
         }
 
@@ -560,17 +581,17 @@ public class PeopleManagementActivity extends AppCompatActivity
                         break;
                 }
                 ToastUtils.showToast(PeopleManagementActivity.this,
-                        errorMessageRes,
-                        ToastUtils.Duration.LONG);
+                                     errorMessageRes,
+                                     ToastUtils.Duration.LONG);
             }
         };
 
         if (personType == Person.PersonType.FOLLOWER || personType == Person.PersonType.EMAIL_FOLLOWER) {
             PeopleUtils.removeFollower(mSite, person.getPersonID(), personType, callback);
-        } else if(personType == Person.PersonType.VIEWER) {
+        } else if (personType == Person.PersonType.VIEWER) {
             PeopleUtils.removeViewer(mSite, person.getPersonID(), callback);
         } else {
-            PeopleUtils.removeUser(mSite, person.getPersonID(),callback);
+            PeopleUtils.removeUser(mSite, person.getPersonID(), callback);
         }
     }
 
@@ -660,5 +681,20 @@ public class PeopleManagementActivity extends AppCompatActivity
 
     public interface InvitationSender {
         void send();
+    }
+
+    // Fluxc events
+
+    @SuppressWarnings("unused")
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onUserRolesChanged(SiteStore.OnUserRolesChanged event) {
+        if (event.isError()) {
+            AppLog.e(AppLog.T.PEOPLE, "An error occurred while fetching the user roles with type: "
+                                      + event.error.type);
+        }
+        PeopleListFragment peopleListFragment = getListFragment();
+        if (peopleListFragment != null) {
+            peopleListFragment.refreshUserRoles();
+        }
     }
 }

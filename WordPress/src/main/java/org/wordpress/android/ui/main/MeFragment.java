@@ -1,6 +1,5 @@
 package org.wordpress.android.ui.main;
 
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Fragment;
@@ -8,32 +7,19 @@ import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.content.res.Resources;
-import android.database.Cursor;
-import android.graphics.Color;
-import android.graphics.Outline;
 import android.net.Uri;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
-import android.provider.MediaStore;
-import android.support.annotation.NonNull;
 import android.support.v4.content.ContextCompat;
-import android.support.v4.content.CursorLoader;
 import android.text.TextUtils;
-import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.View.OnClickListener;
 import android.view.ViewGroup;
-import android.view.ViewOutlineProvider;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.android.volley.Cache;
 import com.android.volley.Request;
-import com.github.xizzhu.simpletooltip.ToolTip;
-import com.github.xizzhu.simpletooltip.ToolTipView;
 import com.yalantis.ucrop.UCrop;
 import com.yalantis.ucrop.UCropActivity;
 
@@ -50,19 +36,18 @@ import org.wordpress.android.fluxc.store.SiteStore;
 import org.wordpress.android.networking.GravatarApi;
 import org.wordpress.android.ui.ActivityLauncher;
 import org.wordpress.android.ui.RequestCodes;
+import org.wordpress.android.ui.media.MediaBrowserType;
 import org.wordpress.android.ui.photopicker.PhotoPickerActivity;
 import org.wordpress.android.ui.photopicker.PhotoPickerActivity.PhotoPickerMediaSource;
-import org.wordpress.android.ui.prefs.AppPrefs;
 import org.wordpress.android.util.AppLog;
 import org.wordpress.android.util.FluxCUtils;
 import org.wordpress.android.util.GravatarUtils;
 import org.wordpress.android.util.HelpshiftHelper.Tag;
 import org.wordpress.android.util.MediaUtils;
-import org.wordpress.android.util.PermissionUtils;
-import org.wordpress.android.util.StringUtils;
 import org.wordpress.android.util.ToastUtils;
+import org.wordpress.android.util.ToastUtils.Duration;
+import org.wordpress.android.util.WPMediaUtils;
 import org.wordpress.android.widgets.WPNetworkImageView;
-import org.wordpress.passcodelock.AppLockManager;
 
 import java.io.DataInputStream;
 import java.io.File;
@@ -70,11 +55,8 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.TreeMap;
 
 import javax.inject.Inject;
@@ -85,12 +67,8 @@ public class MeFragment extends Fragment {
     private static final String IS_DISCONNECTING = "IS_DISCONNECTING";
     private static final String IS_UPDATING_GRAVATAR = "IS_UPDATING_GRAVATAR";
 
-    private static final int CAMERA_AND_MEDIA_PERMISSION_REQUEST_CODE = 1;
-
-    private ViewGroup mAvatarFrame;
+    private ViewGroup mAvatarCard;
     private View mProgressBar;
-    private ToolTipView mGravatarToolTipView;
-    private View mAvatarTooltipAnchor;
     private ViewGroup mAvatarContainer;
     private WPNetworkImageView mAvatarImageView;
     private TextView mDisplayNameTextView;
@@ -130,50 +108,6 @@ public class MeFragment extends Fragment {
         super.setUserVisibleHint(isVisibleToUser);
 
         mIsUserVisible = isVisibleToUser;
-
-        if (isResumed()) {
-            showGravatarTooltipIfNeeded();
-        }
-    }
-
-    private void showGravatarTooltipIfNeeded() {
-        if (!isAdded() || !mAccountStore.hasAccessToken() || !AppPrefs.isGravatarChangePromoRequired() ||
-                !mIsUserVisible || mGravatarToolTipView != null) {
-            return;
-        }
-
-        ToolTip toolTip = createGravatarPromoToolTip(getString(R.string.gravatar_tip), ContextCompat.getColor
-                (getActivity(), R.color.color_primary));
-        mGravatarToolTipView = new ToolTipView.Builder(getActivity())
-                .withAnchor(mAvatarTooltipAnchor)
-                .withToolTip(toolTip)
-                .withGravity(Gravity.END)
-                .build();
-        mGravatarToolTipView.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                AnalyticsTracker.track(AnalyticsTracker.Stat.ME_GRAVATAR_TOOLTIP_TAPPED);
-
-                mGravatarToolTipView.remove();
-                AppPrefs.setGravatarChangePromoRequired(false);
-            }
-        });
-        mGravatarToolTipView.showDelayed(500);
-    }
-
-    private ToolTip createGravatarPromoToolTip(CharSequence text, int backgroundColor) {
-        Resources resources = getResources();
-        int padding = resources.getDimensionPixelSize(R.dimen.tooltip_padding);
-        int textSize = resources.getDimensionPixelSize(R.dimen.tooltip_text_size);
-        int radius = resources.getDimensionPixelSize(R.dimen.tooltip_radius);
-        return new ToolTip.Builder()
-                .withText(text)
-                .withTextColor(Color.WHITE)
-                .withTextSize(textSize)
-                .withBackgroundColor(backgroundColor)
-                .withPadding(padding, padding, padding, padding)
-                .withCornerRadius(radius)
-                .build();
     }
 
     @Override
@@ -181,41 +115,29 @@ public class MeFragment extends Fragment {
                              Bundle savedInstanceState) {
         final ViewGroup rootView = (ViewGroup) inflater.inflate(R.layout.me_fragment, container, false);
 
-        mAvatarFrame = (ViewGroup) rootView.findViewById(R.id.frame_avatar);
-        mAvatarContainer = (ViewGroup) rootView.findViewById(R.id.avatar_container);
-        mAvatarImageView = (WPNetworkImageView) rootView.findViewById(R.id.me_avatar);
-        mAvatarTooltipAnchor = rootView.findViewById(R.id.avatar_tooltip_anchor);
+        mAvatarCard = rootView.findViewById(R.id.card_avatar);
+        mAvatarContainer = rootView.findViewById(R.id.avatar_container);
+        mAvatarImageView = rootView.findViewById(R.id.me_avatar);
         mProgressBar = rootView.findViewById(R.id.avatar_progress);
-        mDisplayNameTextView = (TextView) rootView.findViewById(R.id.me_display_name);
-        mUsernameTextView = (TextView) rootView.findViewById(R.id.me_username);
-        mLoginLogoutTextView = (TextView) rootView.findViewById(R.id.me_login_logout_text_view);
+        mDisplayNameTextView = rootView.findViewById(R.id.me_display_name);
+        mUsernameTextView = rootView.findViewById(R.id.me_username);
+        mLoginLogoutTextView = rootView.findViewById(R.id.me_login_logout_text_view);
         mMyProfileView = rootView.findViewById(R.id.row_my_profile);
         mAccountSettingsView = rootView.findViewById(R.id.row_account_settings);
         mNotificationsView = rootView.findViewById(R.id.row_notifications);
         mNotificationsDividerView = rootView.findViewById(R.id.me_notifications_divider);
 
-        addDropShadowToAvatar();
-
-        mAvatarContainer.setOnClickListener(new View.OnClickListener() {
+        OnClickListener showPickerListener = new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 AnalyticsTracker.track(AnalyticsTracker.Stat.ME_GRAVATAR_TAPPED);
-
-                // User tapped the Gravatar so dismiss the tooltip
-                if (mGravatarToolTipView != null) {
-                    mGravatarToolTipView.remove();
-                }
-                // and no need to promote the feature any more
-                AppPrefs.setGravatarChangePromoRequired(false);
-
-                if (PermissionUtils.checkAndRequestCameraAndStoragePermissions(MeFragment.this,
-                        CAMERA_AND_MEDIA_PERMISSION_REQUEST_CODE)) {
-                    showPhotoPickerForGravatar();
-                } else {
-                    AppLockManager.getInstance().setExtendedTimeout();
-                }
+                showPhotoPickerForGravatar();
             }
-        });
+        };
+
+        mAvatarContainer.setOnClickListener(showPickerListener);
+        rootView.findViewById(R.id.change_photo).setOnClickListener(showPickerListener);
+
         mMyProfileView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -303,7 +225,6 @@ public class MeFragment extends Fragment {
     public void onResume() {
         super.onResume();
         refreshAccountDetails();
-        showGravatarTooltipIfNeeded();
     }
 
     @Override
@@ -313,23 +234,6 @@ public class MeFragment extends Fragment {
             mDisconnectProgressDialog = null;
         }
         super.onDestroy();
-    }
-
-    /**
-     * adds a circular drop shadow to the avatar's parent view (Lollipop+ only)
-     */
-    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-    private void addDropShadowToAvatar() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            mAvatarContainer.setOutlineProvider(new ViewOutlineProvider() {
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    int padding = (mAvatarContainer.getWidth() - mAvatarImageView.getWidth()) / 2;
-                    outline.setOval(padding, padding, view.getWidth() - padding, view.getHeight() - padding);
-                }
-            });
-            mAvatarContainer.setElevation(mAvatarContainer.getResources().getDimensionPixelSize(R.dimen.card_elevation));
-        }
     }
 
     private void refreshAccountDetails() {
@@ -342,7 +246,7 @@ public class MeFragment extends Fragment {
 
             mDisplayNameTextView.setVisibility(View.VISIBLE);
             mUsernameTextView.setVisibility(View.VISIBLE);
-            mAvatarFrame.setVisibility(View.VISIBLE);
+            mAvatarCard.setVisibility(View.VISIBLE);
             mMyProfileView.setVisibility(View.VISIBLE);
             mNotificationsView.setVisibility(View.VISIBLE);
             mNotificationsDividerView.setVisibility(View.VISIBLE);
@@ -350,10 +254,10 @@ public class MeFragment extends Fragment {
             final String avatarUrl = constructGravatarUrl(mAccountStore.getAccount());
             loadAvatar(avatarUrl, null);
 
-            mUsernameTextView.setText("@" + defaultAccount.getUserName());
+            mUsernameTextView.setText(getString(R.string.at_username, defaultAccount.getUserName()));
             mLoginLogoutTextView.setText(R.string.me_disconnect_from_wordpress_com);
 
-            String displayName = StringUtils.unescapeHTML(defaultAccount.getDisplayName());
+            String displayName = defaultAccount.getDisplayName();
             if (!TextUtils.isEmpty(displayName)) {
                 mDisplayNameTextView.setText(displayName);
             } else {
@@ -362,7 +266,7 @@ public class MeFragment extends Fragment {
         } else {
             mDisplayNameTextView.setVisibility(View.GONE);
             mUsernameTextView.setVisibility(View.GONE);
-            mAvatarFrame.setVisibility(View.GONE);
+            mAvatarCard.setVisibility(View.GONE);
             mProgressBar.setVisibility(View.GONE);
             mMyProfileView.setVisibility(View.GONE);
             mAccountSettingsView.setVisibility(View.GONE);
@@ -417,7 +321,7 @@ public class MeFragment extends Fragment {
 
     private void signOutWordPressComWithConfirmation() {
         String message = String.format(getString(R.string.sign_out_wpcom_confirm),
-                mAccountStore.getAccount().getUserName());
+                                       mAccountStore.getAccount().getUserName());
 
         new AlertDialog.Builder(getActivity())
                 .setMessage(message)
@@ -442,44 +346,14 @@ public class MeFragment extends Fragment {
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String permissions[], @NonNull int[]
-            grantResults) {
-        switch (requestCode) {
-            case CAMERA_AND_MEDIA_PERMISSION_REQUEST_CODE:
-                if (permissions.length == 0) {
-                    AnalyticsTracker.track(AnalyticsTracker.Stat.ME_GRAVATAR_PERMISSIONS_INTERRUPTED);
-                }  else {
-                    List<String> granted = new ArrayList<>();
-                    List<String> denied = new ArrayList<>();
-
-                    for (int i = 0; i < grantResults.length; i++) {
-                        if (grantResults[i] == PackageManager.PERMISSION_GRANTED) {
-                            granted.add(permissions[i]);
-                        } else {
-                            denied.add(permissions[i]);
-                        }
-                    }
-
-                    if (denied.size() == 0) {
-                        AnalyticsTracker.track(AnalyticsTracker.Stat.ME_GRAVATAR_PERMISSIONS_ACCEPTED);
-                        showPhotoPickerForGravatar();
-                    } else {
-                        ToastUtils.showToast(this.getActivity(), getString(R.string
-                                .gravatar_camera_and_media_permission_required), ToastUtils.Duration.LONG);
-                        Map<String, Object> properties = new HashMap<>();
-                        properties.put("permissions granted", granted.size() == 0 ? "[none]" : TextUtils
-                                .join(",", granted));
-                        properties.put("permissions denied", TextUtils.join(",", denied));
-                        AnalyticsTracker.track(AnalyticsTracker.Stat.ME_GRAVATAR_PERMISSIONS_DENIED, properties);
-                    }
-                }
-                break;
-        }
-    }
-
-    @Override
     public void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
+        // If the fragment is not attached to the activity, we can't start the crop activity or upload the
+        // cropped image.
+        if (!isAdded()) {
+            return;
+        }
 
         switch (requestCode) {
             case RequestCodes.PHOTO_PICKER:
@@ -497,26 +371,43 @@ public class MeFragment extends Fragment {
                                     : AnalyticsTracker.Stat.ME_GRAVATAR_GALLERY_PICKED;
                     AnalyticsTracker.track(stat);
                     Uri imageUri = Uri.parse(strMediaUri);
-                    startCropActivity(imageUri);
+                    if (imageUri != null) {
+                        boolean didGoWell = WPMediaUtils.fetchMediaAndDoNext(getActivity(), imageUri,
+                                                                             new WPMediaUtils.MediaFetchDoNext() {
+                                                                                 @Override
+                                                                                 public void doNext(Uri uri) {
+                                                                                     startCropActivity(uri);
+                                                                                 }
+                                                                             });
+
+                        if (!didGoWell) {
+                            AppLog.e(AppLog.T.UTILS, "Can't download picked or captured image");
+                        }
+                    }
                 }
                 break;
             case UCrop.REQUEST_CROP:
                 AnalyticsTracker.track(AnalyticsTracker.Stat.ME_GRAVATAR_CROPPED);
 
                 if (resultCode == Activity.RESULT_OK) {
-                    fetchMedia(UCrop.getOutput(data));
+                    WPMediaUtils.fetchMediaAndDoNext(getActivity(), UCrop.getOutput(data),
+                                                     new WPMediaUtils.MediaFetchDoNext() {
+                                                         @Override
+                                                         public void doNext(Uri uri) {
+                                                             startGravatarUpload(
+                                                                     MediaUtils.getRealPathFromURI(getActivity(), uri));
+                                                         }
+                                                     });
                 } else if (resultCode == UCrop.RESULT_ERROR) {
-                    Toast.makeText(getActivity(), getString(R.string.error_cropping_image), Toast.LENGTH_SHORT).show();
-
-                    final Throwable cropError = UCrop.getError(data);
-                    AppLog.e(AppLog.T.MAIN, "Image cropping failed!", cropError);
+                    AppLog.e(AppLog.T.MAIN, "Image cropping failed!", UCrop.getError(data));
+                    ToastUtils.showToast(getActivity(), R.string.error_cropping_image, Duration.SHORT);
                 }
                 break;
         }
     }
 
     private void showPhotoPickerForGravatar() {
-        ActivityLauncher.showPhotoPickerForResult(getActivity());
+        ActivityLauncher.showPhotoPickerForResult(getActivity(), MediaBrowserType.GRAVATAR_IMAGE_PICKER, null);
     }
 
     private void startCropActivity(Uri uri) {
@@ -534,55 +425,40 @@ public class MeFragment extends Fragment {
         options.setHideBottomControls(true);
 
         UCrop.of(uri, Uri.fromFile(new File(context.getCacheDir(), "cropped_for_gravatar.jpg")))
-                .withAspectRatio(1, 1)
-                .withOptions(options)
-                .start(getActivity(), this);
-    }
-
-    private void fetchMedia(Uri mediaUri) {
-        if (!MediaUtils.isInMediaStore(mediaUri)) {
-            // Do not download the file in async task. See https://github.com/wordpress-mobile/WordPress-Android/issues/5818
-            Uri downloadedUri = MediaUtils.downloadExternalMedia(getActivity(), mediaUri);
-            if (downloadedUri != null) {
-                startGravatarUpload(MediaUtils.getRealPathFromURI(getActivity(), downloadedUri));
-            } else {
-                Toast.makeText(getActivity(), getString(R.string.error_downloading_image), Toast.LENGTH_SHORT).show();
-            }
-        } else {
-            // It is a regular local media file
-            startGravatarUpload(MediaUtils.getRealPathFromURI(getActivity(), mediaUri));
-        }
+             .withAspectRatio(1, 1)
+             .withOptions(options)
+             .start(getActivity(), this);
     }
 
     private void startGravatarUpload(final String filePath) {
         if (TextUtils.isEmpty(filePath)) {
-            Toast.makeText(getActivity(), getString(R.string.error_locating_image), Toast.LENGTH_SHORT).show();
+            ToastUtils.showToast(getActivity(), R.string.error_locating_image, ToastUtils.Duration.SHORT);
             return;
         }
 
         File file = new File(filePath);
         if (!file.exists()) {
-            Toast.makeText(getActivity(), getString(R.string.error_locating_image), Toast.LENGTH_SHORT).show();
+            ToastUtils.showToast(getActivity(), R.string.error_locating_image, ToastUtils.Duration.SHORT);
             return;
         }
 
         showGravatarProgressBar(true);
 
         GravatarApi.uploadGravatar(file, mAccountStore.getAccount().getEmail(), mAccountStore.getAccessToken(),
-                new GravatarApi.GravatarUploadListener() {
-                    @Override
-                    public void onSuccess() {
-                        EventBus.getDefault().post(new GravatarUploadFinished(filePath, true));
-                    }
+                                   new GravatarApi.GravatarUploadListener() {
+                                       @Override
+                                       public void onSuccess() {
+                                           EventBus.getDefault().post(new GravatarUploadFinished(filePath, true));
+                                       }
 
-                    @Override
-                    public void onError() {
-                        EventBus.getDefault().post(new GravatarUploadFinished(filePath, false));
-                    }
-                });
+                                       @Override
+                                       public void onError() {
+                                           EventBus.getDefault().post(new GravatarUploadFinished(filePath, false));
+                                       }
+                                   });
     }
 
-    static public class GravatarUploadFinished {
+    public static class GravatarUploadFinished {
         public final String filePath;
         public final boolean success;
 
@@ -599,11 +475,11 @@ public class MeFragment extends Fragment {
             loadAvatar(avatarUrl, event.filePath);
         } else {
             showGravatarProgressBar(false);
-            Toast.makeText(getActivity(), getString(R.string.error_updating_gravatar), Toast.LENGTH_SHORT).show();
+            ToastUtils.showToast(getActivity(), R.string.error_updating_gravatar, ToastUtils.Duration.SHORT);
         }
     }
 
-    static public class GravatarLoadFinished {
+    public static class GravatarLoadFinished {
         public final boolean success;
 
         public GravatarLoadFinished(boolean success) {
@@ -613,14 +489,14 @@ public class MeFragment extends Fragment {
 
     public void onEventMainThread(GravatarLoadFinished event) {
         if (!event.success && mIsUpdatingGravatar) {
-            Toast.makeText(getActivity(), getString(R.string.error_refreshing_gravatar), Toast.LENGTH_SHORT).show();
+            ToastUtils.showToast(getActivity(), R.string.error_refreshing_gravatar, ToastUtils.Duration.SHORT);
         }
         showGravatarProgressBar(false);
     }
 
     // injects a fabricated cache entry to the request cache
     private void injectCache(File file, String avatarUrl) throws IOException {
-        final SimpleDateFormat sdf = new SimpleDateFormat("E, dd MMM yyyy HH:mm:ss z");
+        final SimpleDateFormat sdf = new SimpleDateFormat("E, dd MMM yyyy HH:mm:ss z", Locale.ROOT);
         final long currentTimeMs = System.currentTimeMillis();
         final Date currentTime = new Date(currentTimeMs);
         final long fiveMinutesLaterMs = currentTimeMs + 5 * 60 * 1000;
@@ -644,7 +520,7 @@ public class MeFragment extends Fragment {
         entry.responseHeaders.put("Access-Control-Allow-Origin", "*");
         entry.responseHeaders.put("Cache-Control", "max-age=300");
         entry.responseHeaders.put("Content-Disposition", "inline; filename=\""
-                + mAccountStore.getAccount().getAvatarUrl() + ".jpeg\"");
+                                                         + mAccountStore.getAccount().getAvatarUrl() + ".jpeg\"");
         entry.responseHeaders.put("Content-Length", String.valueOf(file.length()));
         entry.responseHeaders.put("Content-Type", "image/jpeg");
         entry.responseHeaders.put("Date", sdf.format(currentTime));
@@ -664,7 +540,7 @@ public class MeFragment extends Fragment {
     private class SignOutWordPressComAsync extends AsyncTask<Void, Void, Void> {
         WeakReference<Context> mWeakContext;
 
-        public SignOutWordPressComAsync(Context context) {
+        SignOutWordPressComAsync(Context context) {
             mWeakContext = new WeakReference<Context>(context);
         }
 

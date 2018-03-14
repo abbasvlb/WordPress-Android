@@ -2,9 +2,12 @@ package org.wordpress.android.ui;
 
 import android.app.AlertDialog;
 import android.app.ListActivity;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
+import android.support.v4.content.pm.ShortcutInfoCompat;
+import android.support.v4.content.pm.ShortcutManagerCompat;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -20,19 +23,19 @@ import android.widget.ListView;
 import android.widget.RelativeLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.android.volley.toolbox.NetworkImageView;
 
+import org.apache.commons.text.StringEscapeUtils;
 import org.wordpress.android.R;
 import org.wordpress.android.WordPress;
 import org.wordpress.android.fluxc.model.SiteModel;
 import org.wordpress.android.fluxc.store.SiteStore;
 import org.wordpress.android.fluxc.tools.FluxCImageLoader;
-import org.wordpress.android.ui.accounts.SignInActivity;
 import org.wordpress.android.ui.posts.EditPostActivity;
+import org.wordpress.android.util.LocaleManager;
 import org.wordpress.android.util.SiteUtils;
-import org.wordpress.android.util.StringUtils;
+import org.wordpress.android.util.ToastUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,8 +43,6 @@ import java.util.List;
 import javax.inject.Inject;
 
 public class AddQuickPressShortcutActivity extends ListActivity {
-    static final int ADD_ACCOUNT_REQUEST = 0;
-
     public String[] blogNames;
     public int[] siteIds;
     public String[] accountUsers;
@@ -50,6 +51,11 @@ public class AddQuickPressShortcutActivity extends ListActivity {
 
     @Inject SiteStore mSiteStore;
     @Inject FluxCImageLoader mImageLoader;
+
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(LocaleManager.setLocale(newBase));
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -110,11 +116,9 @@ public class AddQuickPressShortcutActivity extends ListActivity {
             if (sites.size() == 1) {
                 AddQuickPressShortcutActivity.this.buildDialog(0);
             }
-
         } else {
             // no account, load new account view
-            Intent i = new Intent(AddQuickPressShortcutActivity.this, SignInActivity.class);
-            startActivityForResult(i, ADD_ACCOUNT_REQUEST);
+            ActivityLauncher.showSignInForResult(AddQuickPressShortcutActivity.this);
         }
     }
 
@@ -123,14 +127,15 @@ public class AddQuickPressShortcutActivity extends ListActivity {
         dialogBuilder.setTitle(R.string.quickpress_add_alert_title);
 
         final EditText quickPressShortcutName = new EditText(AddQuickPressShortcutActivity.this);
-        quickPressShortcutName.setText("QP " + StringUtils.unescapeHTML(accountNames.get(position)));
+        quickPressShortcutName.setText(getString(R.string.quickpress_shortcut_with_account_param,
+                StringEscapeUtils.unescapeHtml4(accountNames.get(position))));
         dialogBuilder.setView(quickPressShortcutName);
 
         dialogBuilder.setPositiveButton(R.string.add, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface dialog, int which) {
                 if (TextUtils.isEmpty(quickPressShortcutName.getText())) {
-                    Toast t = Toast.makeText(AddQuickPressShortcutActivity.this, R.string.quickpress_add_error, Toast.LENGTH_LONG);
-                    t.show();
+                    ToastUtils.showToast(AddQuickPressShortcutActivity.this, R.string.quickpress_add_error,
+                                         ToastUtils.Duration.LONG);
                 } else {
                     Intent shortcutIntent = new Intent(getApplicationContext(), EditPostActivity.class);
                     shortcutIntent.setAction(Intent.ACTION_MAIN);
@@ -139,23 +144,27 @@ public class AddQuickPressShortcutActivity extends ListActivity {
                     shortcutIntent.putExtra(EditPostActivity.EXTRA_QUICKPRESS_BLOG_ID, siteIds[position]);
                     shortcutIntent.putExtra(EditPostActivity.EXTRA_IS_QUICKPRESS, true);
 
-                    Intent addIntent = new Intent();
-                    addIntent.putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent);
-                    addIntent.putExtra(Intent.EXTRA_SHORTCUT_NAME, quickPressShortcutName.getText().toString());
-                    addIntent.putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE, Intent.ShortcutIconResource.fromContext
-                            (AddQuickPressShortcutActivity.this, R.mipmap.app_icon));
+                    String shortcutName = quickPressShortcutName.getText().toString();
 
-                    WordPress.wpDB.addQuickPressShortcut(siteIds[position], quickPressShortcutName.getText().toString());
+                    WordPress.wpDB.addQuickPressShortcut(siteIds[position], shortcutName);
 
-                    addIntent.setAction("com.android.launcher.action.INSTALL_SHORTCUT");
-                    AddQuickPressShortcutActivity.this.sendBroadcast(addIntent);
+                    ShortcutInfoCompat pinShortcutInfo =
+                            new ShortcutInfoCompat.Builder(getApplicationContext(), shortcutName)
+                                    .setIcon(R.mipmap.app_icon)
+                                    .setShortLabel(shortcutName)
+                                    .setIntent(shortcutIntent)
+                                    .build();
+
+                    ShortcutManagerCompat.requestPinShortcut(getApplicationContext(), pinShortcutInfo, null);
+
                     AddQuickPressShortcutActivity.this.finish();
                 }
             }
         });
         dialogBuilder.setNegativeButton(R.string.cancel, new DialogInterface.OnClickListener() {
             // just let the dialog close
-            public void onClick(DialogInterface dialog, int which) {}
+            public void onClick(DialogInterface dialog, int which) {
+            }
         });
 
         dialogBuilder.setCancelable(false);
@@ -166,7 +175,7 @@ public class AddQuickPressShortcutActivity extends ListActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         switch (requestCode) {
-            case ADD_ACCOUNT_REQUEST:
+            case RequestCodes.ADD_ACCOUNT:
                 if (resultCode == RESULT_OK) {
                     if (mSiteStore.getVisibleSitesCount() > 0) {
                         displayAccounts();
@@ -198,25 +207,23 @@ public class AddQuickPressShortcutActivity extends ListActivity {
             RelativeLayout view = (RelativeLayout) convertView;
             if (view == null) {
                 LayoutInflater inflater = getLayoutInflater();
-                view = (RelativeLayout)inflater.inflate(R.layout.home_row, parent, false);
+                view = (RelativeLayout) inflater.inflate(R.layout.home_row, parent, false);
             }
             String username = accountUsers[position];
             view.setId(Integer.valueOf(siteIds[position]));
 
-            TextView blogName = (TextView)view.findViewById(R.id.blogName);
-            TextView blogUsername = (TextView)view.findViewById(R.id.blogUser);
-            NetworkImageView blavatar = (NetworkImageView)view.findViewById(R.id.blavatar);
+            TextView blogName = (TextView) view.findViewById(R.id.blogName);
+            TextView blogUsername = (TextView) view.findViewById(R.id.blogUser);
+            NetworkImageView blavatar = (NetworkImageView) view.findViewById(R.id.blavatar);
 
             blogName.setText(
-                    StringUtils.unescapeHTML(blogNames[position]));
+                    StringEscapeUtils.unescapeHtml4(blogNames[position]));
             blogUsername.setText(
-                    StringUtils.unescapeHTML(username));
+                    StringEscapeUtils.unescapeHtml4(username));
             blavatar.setErrorImageResId(R.drawable.ic_placeholder_blavatar_grey_lighten_20_40dp);
             blavatar.setImageUrl(blavatars[position], mImageLoader);
 
             return view;
-
         }
-
     }
 }

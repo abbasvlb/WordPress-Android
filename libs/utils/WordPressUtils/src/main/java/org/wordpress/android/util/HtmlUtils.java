@@ -9,13 +9,12 @@ import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.QuoteSpan;
 
-import org.apache.commons.lang3.StringEscapeUtils;
+import org.apache.commons.text.StringEscapeUtils;
 import org.wordpress.android.util.helpers.WPHtmlTagHandler;
 import org.wordpress.android.util.helpers.WPImageGetter;
 import org.wordpress.android.util.helpers.WPQuoteSpan;
 
 public class HtmlUtils {
-
     /**
      * Removes html from the passed string - relies on Html.fromHtml which handles invalid HTML,
      * but it's very slow, so avoid using this where performance is important
@@ -51,7 +50,7 @@ public class HtmlUtils {
         }
 
         // use regex to strip tags, then convert entities in the result
-        return trimStart(fastUnescapeHtml(str.replaceAll("<(.|\n)*?>", "")));
+        return trimStart(StringEscapeUtils.unescapeHtml4(str.replaceAll("<(.|\n)*?>", "")));
     }
 
     /*
@@ -68,18 +67,6 @@ public class HtmlUtils {
             start++;
         }
         return str.substring(start);
-    }
-
-    /**
-     * Convert html entities to actual Unicode characters - relies on commons apache lang
-     * @param text String to be decoded to Unicode
-     * @return String containing unicode characters
-     */
-    public static String fastUnescapeHtml(final String text) {
-        if (text == null || !text.contains("&")) {
-            return text;
-        }
-        return StringEscapeUtils.unescapeHtml4(text);
     }
 
     /**
@@ -102,7 +89,8 @@ public class HtmlUtils {
      * may have a script block which contains {@code <!--//-->} followed by a CDATA section followed by {@code <!]]>,}
      * all of which will show up if we don't strip it here.
      * @see <a href="http://wordpress.org/plugins/sociable/">Wordpress Sociable Plugin</a>
-     * @return String without {@code <script>..</script>},  {@code <!--//-->} blocks followed by a CDATA section followed by {@code <!]]>,}
+     * @return String without {@code <script>..</script>}, {@code <!--//-->} blocks followed by a CDATA section
+     * followed by {@code <!]]>,}
      * @param text String containing script tags
      */
     public static String stripScript(final String text) {
@@ -128,8 +116,8 @@ public class HtmlUtils {
     /**
      * An alternative to Html.fromHtml() supporting {@code <ul>}, {@code <ol>}, {@code <blockquote>}
      * tags and replacing EmoticonsUtils with Emojis
-     * @param  source
-     * @param  wpImageGetter
+     * @param source
+     * @param wpImageGetter
      */
     public static SpannableStringBuilder fromHtml(String source, WPImageGetter wpImageGetter) {
         source = replaceListTagsWithCustomTags(source);
@@ -141,11 +129,11 @@ public class HtmlUtils {
             html = (SpannableStringBuilder) Html.fromHtml(source, wpImageGetter, null);
         }
         EmoticonsUtils.replaceEmoticonsWithEmoji(html);
-        QuoteSpan spans[] = html.getSpans(0, html.length(), QuoteSpan.class);
+        QuoteSpan[] spans = html.getSpans(0, html.length(), QuoteSpan.class);
         for (QuoteSpan span : spans) {
             html.setSpan(new WPQuoteSpan(), html.getSpanStart(span), html.getSpanEnd(span), html.getSpanFlags(span));
             html.setSpan(new ForegroundColorSpan(0xFF666666), html.getSpanStart(span), html.getSpanEnd(span),
-                    html.getSpanFlags(span));
+                         html.getSpanFlags(span));
             html.removeSpan(span);
         }
         return html;
@@ -153,11 +141,11 @@ public class HtmlUtils {
 
     private static String replaceListTagsWithCustomTags(String source) {
         return source.replace("<ul", "<WPUL")
-                .replace("</ul>", "</WPUL>")
-                .replace("<ol", "<WPOL")
-                .replace("</ol>", "</WPOL>")
-                .replace("<li", "<WPLI")
-                .replace("</li>", "</WPLI>");
+                     .replace("</ul>", "</WPUL>")
+                     .replace("<ol", "<WPOL")
+                     .replace("</ol>", "</WPOL>")
+                     .replace("<li", "<WPLI")
+                     .replace("</li>", "</WPLI>");
     }
 
     public static Spanned fromHtml(String source) {

@@ -29,16 +29,17 @@ import org.wordpress.android.util.JSONUtils;
 import de.greenrobot.event.EventBus;
 
 public class ReaderCommentService extends Service {
-
-    private static final String ARG_POST_ID     = "post_id";
-    private static final String ARG_BLOG_ID     = "blog_id";
-    private static final String ARG_COMMENT_ID  = "comment_id";
-    private static final String ARG_NEXT_PAGE   = "next_page";
+    private static final String ARG_POST_ID = "post_id";
+    private static final String ARG_BLOG_ID = "blog_id";
+    private static final String ARG_COMMENT_ID = "comment_id";
+    private static final String ARG_NEXT_PAGE = "next_page";
 
     private static int mCurrentPage;
 
     public static void startService(Context context, long blogId, long postId, boolean requestNextPage) {
-        if (context == null) return;
+        if (context == null) {
+            return;
+        }
 
         Intent intent = new Intent(context, ReaderCommentService.class);
         intent.putExtra(ARG_BLOG_ID, blogId);
@@ -49,7 +50,9 @@ public class ReaderCommentService extends Service {
 
     // Requests comments until the passed commentId is found
     public static void startServiceForComment(Context context, long blogId, long postId, long commentId) {
-        if (context == null) return;
+        if (context == null) {
+            return;
+        }
 
         Intent intent = new Intent(context, ReaderCommentService.class);
         intent.putExtra(ARG_BLOG_ID, blogId);
@@ -59,11 +62,13 @@ public class ReaderCommentService extends Service {
     }
 
     public static void stopService(Context context) {
-        if (context == null) return;
+        if (context == null) {
+            return;
+        }
 
         Intent intent = new Intent(context, ReaderCommentService.class);
         context.stopService(intent);
-     }
+    }
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -129,16 +134,17 @@ public class ReaderCommentService extends Service {
                                               final int pageNumber,
                                               final ReaderActions.UpdateResultListener resultListener) {
         String path = "sites/" + blogId + "/posts/" + postId + "/replies/"
-                    + "?number=" + Integer.toString(ReaderConstants.READER_MAX_COMMENTS_TO_REQUEST)
-                    + "&meta=likes"
-                    + "&hierarchical=true"
-                    + "&order=ASC"
-                    + "&page=" + pageNumber;
+                      + "?number=" + Integer.toString(ReaderConstants.READER_MAX_COMMENTS_TO_REQUEST)
+                      + "&meta=likes"
+                      + "&force=wpcom"
+                      + "&hierarchical=true"
+                      + "&order=ASC"
+                      + "&page=" + pageNumber;
 
         RestRequest.Listener listener = new RestRequest.Listener() {
             @Override
             public void onResponse(JSONObject jsonObject) {
-                handleUpdateCommentsResponse(jsonObject, blogId, pageNumber, resultListener);
+                handleUpdateCommentsResponse(jsonObject, blogId, postId, pageNumber, resultListener);
             }
         };
         RestRequest.ErrorListener errorListener = new RestRequest.ErrorListener() {
@@ -151,8 +157,10 @@ public class ReaderCommentService extends Service {
         AppLog.d(AppLog.T.READER, "updating comments");
         WordPress.getRestClientUtilsV1_1().get(path, null, null, listener, errorListener);
     }
+
     private static void handleUpdateCommentsResponse(final JSONObject jsonObject,
                                                      final long blogId,
+                                                     final long postId,
                                                      final int pageNumber,
                                                      final ReaderActions.UpdateResultListener resultListener) {
         if (jsonObject == null) {
@@ -167,6 +175,11 @@ public class ReaderCommentService extends Service {
 
                 ReaderDatabase.getWritableDb().beginTransaction();
                 try {
+                    // purge existing comments if this was a request for the first page of comments
+                    if (pageNumber == 1) {
+                        ReaderCommentTable.purgeCommentsForPost(blogId, postId);
+                    }
+
                     ReaderCommentList serverComments = new ReaderCommentList();
                     JSONArray jsonCommentList = jsonObject.optJSONArray("comments");
                     if (jsonCommentList != null) {

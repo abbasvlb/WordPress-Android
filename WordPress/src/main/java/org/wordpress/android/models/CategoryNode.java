@@ -11,57 +11,65 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 
 public class CategoryNode {
-    private long categoryId;
-    private String name;
-    private long parentId;
-    private int level;
-    private SortedMap<String, CategoryNode> children = new TreeMap<>(new Comparator<String>() {
+    private long mCategoryId;
+    private String mName;
+    private long mParentId;
+    private int mLevel;
+    private SortedMap<String, CategoryNode> mChildren = new TreeMap<>(new Comparator<String>() {
         @Override
         public int compare(String s, String s2) {
+            if (s == null) {
+                if (s2 == null) {
+                    return 0;
+                }
+                return 1;
+            } else if (s2 == null) {
+                return -1;
+            }
             return s.compareToIgnoreCase(s2);
         }
     });
 
     public SortedMap<String, CategoryNode> getChildren() {
-        return children;
+        return mChildren;
     }
 
     public void setChildren(SortedMap<String, CategoryNode> children) {
-        this.children = children;
+        this.mChildren = children;
     }
 
     public CategoryNode(long categoryId, long parentId, String name) {
-        this.categoryId = categoryId;
-        this.parentId = parentId;
-        this.name = name;
+        this.mCategoryId = categoryId;
+        this.mParentId = parentId;
+        this.mName = name;
     }
 
     public long getCategoryId() {
-        return categoryId;
+        return mCategoryId;
     }
 
     public void setCategoryId(int categoryId) {
-        this.categoryId = categoryId;
+        this.mCategoryId = categoryId;
     }
 
     public String getName() {
-        return name;
+        return mName;
     }
 
     public void setName(String name) {
-        this.name = name;
+        this.mName = name;
     }
 
     public long getParentId() {
-        return parentId;
+        return mParentId;
     }
 
     public void setParentId(int parentId) {
-        this.parentId = parentId;
+        this.mParentId = parentId;
     }
 
     public int getLevel() {
-        return level;
+        return mLevel;
     }
 
     public static CategoryNode createCategoryTreeFromList(List<TermModel> categories) {
@@ -78,24 +86,27 @@ public class CategoryNode {
         }
 
         // Second pass associate nodes to form a tree
-        for(int i = 0; i < categoryMap.size(); i++){
+        for (int i = 0; i < categoryMap.size(); i++) {
             CategoryNode category = categoryMap.valueAt(i);
             if (category.getParentId() == 0) { // root node
                 currentRootNode = rootCategory;
             } else {
                 currentRootNode = categoryMap.get(category.getParentId(), rootCategory);
             }
-            currentRootNode.children.put(category.getName(), categoryMap.get(category.getCategoryId()));
+            CategoryNode childNode = categoryMap.get(category.getCategoryId());
+            if (childNode != null) {
+                currentRootNode.mChildren.put(category.getName(), childNode);
+            }
         }
         return rootCategory;
     }
 
     private static void preOrderTreeTraversal(CategoryNode node, int level, ArrayList<CategoryNode> returnValue) {
         if (node == null) {
-            return ;
+            return;
         }
-        if (node.parentId != -1) {
-            node.level = level;
+        if (node.mParentId != -1) {
+            node.mLevel = level;
             returnValue.add(node);
         }
         for (CategoryNode child : node.getChildren().values()) {

@@ -17,6 +17,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.support.annotation.NonNull;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -64,13 +65,13 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class EditorFragment extends EditorFragmentAbstract implements View.OnClickListener, View.OnTouchListener,
         OnJsEditorStateChangedListener, OnImeBackListener, EditorWebViewAbstract.AuthHeaderRequestListener,
         EditorMediaUploadListener {
-
-    public class IllegalEditorStateException extends Exception {
-
+    public class EditorFragmentNotAddedException extends Exception {
     }
 
     private static final String JS_CALLBACK_HANDLER = "nativeCallbackHandler";
@@ -81,19 +82,23 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
     private static final float TOOLBAR_ALPHA_ENABLED = 1;
     private static final float TOOLBAR_ALPHA_DISABLED = 0.5f;
 
-    private static final List<String> DRAGNDROP_SUPPORTED_MIMETYPES_TEXT = Arrays.asList(ClipDescription.MIMETYPE_TEXT_PLAIN,
-            ClipDescription.MIMETYPE_TEXT_HTML);
-    private static final List<String> DRAGNDROP_SUPPORTED_MIMETYPES_IMAGE = Arrays.asList("image/jpeg", "image/png");
+    private static final List<String> DRAGNDROP_SUPPORTED_MIMETYPES_TEXT =
+            Arrays.asList(ClipDescription.MIMETYPE_TEXT_PLAIN, ClipDescription.MIMETYPE_TEXT_HTML);
+    private static final List<String> DRAGNDROP_SUPPORTED_MIMETYPES_IMAGE =
+            Arrays.asList("image/jpeg", "image/png");
 
     public static final int MAX_ACTION_TIME_MS = 2000;
+
+    public static final String UPLOADED_IMAGE_TEMPLATE = "<a href=\"%s\"><img src=\"%s\" alt=\"\" class=\"wp-image-%s"
+            + " alignnone size-full\" width=\"%d\" height=\"%d\"></a>";
 
     private String mTitle = "";
     private String mContentHtml = "";
 
     private EditorWebViewAbstract mWebView;
     private View mSourceView;
-    private SourceViewEditText mSourceViewTitle;
-    private SourceViewEditText mSourceViewContent;
+    private EditTextWithKeyBackListener mSourceViewTitle;
+    private EditTextWithKeyBackListener mSourceViewContent;
 
     private int mSelectionStart;
     private int mSelectionEnd;
@@ -110,7 +115,8 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
     private boolean mIsFormatBarDisabled = false;
 
     private ConcurrentHashMap<String, MediaFile> mWaitingMediaFiles = new ConcurrentHashMap<>();
-    private Set<MediaGallery> mWaitingGalleries = Collections.newSetFromMap(new ConcurrentHashMap<MediaGallery, Boolean>());
+    private Set<MediaGallery> mWaitingGalleries =
+            Collections.newSetFromMap(new ConcurrentHashMap<MediaGallery, Boolean>());
     private Map<String, MediaType> mUploadingMedia = new HashMap<>();
     private Set<String> mFailedMediaIds = new HashSet<>();
 
@@ -127,7 +133,7 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
     private long mActionStartedAt = -1;
 
     private final View.OnDragListener mOnDragListener = new View.OnDragListener() {
-        private long lastSetCoordsTimestamp;
+        private long mLastSetCoordsTimestamp;
 
         private boolean isSupported(ClipDescription clipDescription, List<String> mimeTypesToCheck) {
             if (clipDescription == null) {
@@ -147,8 +153,8 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
         public boolean onDrag(View view, DragEvent dragEvent) {
             switch (dragEvent.getAction()) {
                 case DragEvent.ACTION_DRAG_STARTED:
-                    return isSupported(dragEvent.getClipDescription(), DRAGNDROP_SUPPORTED_MIMETYPES_TEXT) ||
-                            isSupported(dragEvent.getClipDescription(), DRAGNDROP_SUPPORTED_MIMETYPES_IMAGE);
+                    return isSupported(dragEvent.getClipDescription(), DRAGNDROP_SUPPORTED_MIMETYPES_TEXT)
+                            || isSupported(dragEvent.getClipDescription(), DRAGNDROP_SUPPORTED_MIMETYPES_IMAGE);
                 case DragEvent.ACTION_DRAG_ENTERED:
                     // would be nice to start marking the place the item will drop
                     break;
@@ -158,8 +164,8 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
 
                     // don't call into JS too often
                     long currentTimestamp = SystemClock.uptimeMillis();
-                    if ((currentTimestamp - lastSetCoordsTimestamp) > 150) {
-                        lastSetCoordsTimestamp = currentTimestamp;
+                    if ((currentTimestamp - mLastSetCoordsTimestamp) > 150) {
+                        mLastSetCoordsTimestamp = currentTimestamp;
 
                         mWebView.execJavaScriptFromString("ZSSEditor.moveCaretToCoords(" + x + ", " + y + ");");
                     }
@@ -180,8 +186,8 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                         }
                     }
 
-                    if (isSupported(dragEvent.getClipDescription(), DRAGNDROP_SUPPORTED_MIMETYPES_IMAGE) &&
-                            ("zss_field_title".equals(mFocusedFieldId))) {
+                    if (isSupported(dragEvent.getClipDescription(), DRAGNDROP_SUPPORTED_MIMETYPES_IMAGE)
+                            && ("zss_field_title".equals(mFocusedFieldId))) {
                         // don't allow dropping images into the title field
                         ToastUtils.showToast(getActivity(), R.string.editor_dropped_title_images_not_allowed,
                                 ToastUtils.Duration.LONG);
@@ -314,8 +320,8 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                 mWebView.post(new Runnable() {
                     @Override
                     public void run() {
-                        mWebView.execJavaScriptFromString("try {ZSSEditor.refreshVisibleViewportSize();} catch (e) " +
-                                "{console.log(e)}");
+                        mWebView.execJavaScriptFromString("try {ZSSEditor.refreshVisibleViewportSize();} catch (e) "
+                                + "{console.log(e)}");
                     }
                 });
             }
@@ -333,8 +339,8 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
         // -- HTML mode configuration
 
         mSourceView = view.findViewById(R.id.sourceview);
-        mSourceViewTitle = (SourceViewEditText) view.findViewById(R.id.sourceview_title);
-        mSourceViewContent = (SourceViewEditText) view.findViewById(R.id.sourceview_content);
+        mSourceViewTitle = (EditTextWithKeyBackListener) view.findViewById(R.id.sourceview_title);
+        mSourceViewContent = (EditTextWithKeyBackListener) view.findViewById(R.id.sourceview_content);
 
         // Toggle format bar on/off as user changes focus between title and content in HTML mode
         mSourceViewTitle.setOnFocusChangeListener(new View.OnFocusChangeListener() {
@@ -400,15 +406,6 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
     }
 
     @Override
-    public void onDetach() {
-        // Soft cancel (delete flag off) all media uploads currently in progress
-        for (String mediaId : mUploadingMedia.keySet()) {
-            mEditorFragmentListener.onMediaUploadCancelClicked(mediaId, false);
-        }
-        super.onDetach();
-    }
-
-    @Override
     public void setUserVisibleHint(boolean isVisibleToUser) {
         if (mDomHasLoaded) {
             mWebView.notifyVisibilityChanged(isVisibleToUser);
@@ -421,7 +418,7 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
         try {
             outState.putCharSequence(ATTR_TITLE, getTitle());
             outState.putCharSequence(ATTR_CONTENT, getContent());
-        } catch (IllegalEditorStateException e) {
+        } catch (EditorFragmentNotAddedException e) {
             AppLog.e(T.EDITOR, "onSaveInstanceState: unable to get title or content");
         }
     }
@@ -555,9 +552,10 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
             htmlEditor = htmlEditor.replace("%%TITLE%%", getString(R.string.visual_editor));
             htmlEditor = htmlEditor.replace("%%ANDROID_API_LEVEL%%", String.valueOf(Build.VERSION.SDK_INT));
             htmlEditor = htmlEditor.replace("%%LOCALIZED_STRING_INIT%%",
-                    "nativeState.localizedStringEdit = '" + getString(R.string.edit) + "';\n" +
-                    "nativeState.localizedStringUploading = '" + getString(R.string.uploading) + "';\n" +
-                    "nativeState.localizedStringUploadingGallery = '" + getString(R.string.uploading_gallery_placeholder) + "';\n");
+                    "nativeState.localizedStringEdit = '" + getString(R.string.edit) + "';\n"
+                    + "nativeState.localizedStringUploading = '" + getString(R.string.uploading) + "';\n"
+                    + "nativeState.localizedStringUploadingGallery = '"
+                    + getString(R.string.uploading_gallery_placeholder) + "';\n");
         }
 
         // To avoid reflection security issues with JavascriptInterface on API<17, we use an iframe to make URL requests
@@ -566,6 +564,7 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
         if (Build.VERSION.SDK_INT < 17) {
             mWebView.setJsCallbackReceiver(new JsCallbackReceiver(this));
         } else {
+            //noinspection AddJavascriptInterface
             mWebView.addJavascriptInterface(new JsCallbackReceiver(this), JS_CALLBACK_HANDLER);
         }
 
@@ -636,16 +635,16 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                     try {
                         getTitle();
                         getContent();
-                    } catch (IllegalEditorStateException e) {
+                    } catch (EditorFragmentNotAddedException e) {
                         AppLog.e(T.EDITOR, "toggleHtmlMode: unable to get title or content");
-                        getActivity().runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                toggleButton.setChecked(false);
-                            }
-                        });
                         return;
                     }
+
+                    // sanity check
+                    if (!isAdded()) {
+                        return;
+                    }
+
                     getActivity().runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
@@ -671,7 +670,6 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
             });
 
             thread.start();
-
         } else {
             mWebView.setVisibility(View.VISIBLE);
             mSourceView.setVisibility(View.GONE);
@@ -773,10 +771,10 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
             if (!((ToggleButton) v).isChecked()) {
                 // The link button was checked when it was pressed; remove the current link
                 mWebView.execJavaScriptFromString("ZSSEditor.unlink();");
-                mEditorFragmentListener.onTrackableEvent(TrackableEvent.UNLINK_BUTTON_TAPPED);
+                mEditorFragmentListener.onTrackableEvent(TrackableEvent.LINK_REMOVED_BUTTON_TAPPED);
                 return;
             }
-            mEditorFragmentListener.onTrackableEvent(TrackableEvent.LINK_BUTTON_TAPPED);
+            mEditorFragmentListener.onTrackableEvent(TrackableEvent.LINK_ADDED_BUTTON_TAPPED);
 
             ((ToggleButton) v).setChecked(false);
 
@@ -817,9 +815,8 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
     public void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
 
-        if ((requestCode == LinkDialogFragment.LINK_DIALOG_REQUEST_CODE_ADD ||
-                requestCode == LinkDialogFragment.LINK_DIALOG_REQUEST_CODE_UPDATE)) {
-
+        if ((requestCode == LinkDialogFragment.LINK_DIALOG_REQUEST_CODE_ADD
+                || requestCode == LinkDialogFragment.LINK_DIALOG_REQUEST_CODE_UPDATE)) {
             if (resultCode == LinkDialogFragment.LINK_DIALOG_REQUEST_CODE_DELETE) {
                 mWebView.execJavaScriptFromString("ZSSEditor.unlink();");
                 return;
@@ -864,8 +861,8 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                 } else {
                     jsMethod = "ZSSEditor.updateLink";
                 }
-                mWebView.execJavaScriptFromString(jsMethod + "('" + Utils.escapeHtml(linkUrl) + "', '" +
-                        Utils.escapeHtml(linkText) + "');");
+                mWebView.execJavaScriptFromString(jsMethod + "('" + Utils.escapeHtml(linkUrl) + "', '"
+                        + Utils.escapeHtml(linkText) + "');");
             }
         } else if (requestCode == ImageSettingsDialogFragment.IMAGE_SETTINGS_DIALOG_REQUEST_CODE) {
             if (data == null) {
@@ -928,9 +925,9 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
      * where possible.
      */
     @Override
-    public CharSequence getTitle() throws IllegalEditorStateException {
+    public CharSequence getTitle() throws EditorFragmentNotAddedException {
         if (!isAdded()) {
-            throw new IllegalEditorStateException();
+            throw new EditorFragmentNotAddedException();
         }
 
         if (mSourceView != null && mSourceView.getVisibility() == View.VISIBLE) {
@@ -967,9 +964,9 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
      * where possible.
      */
     @Override
-    public CharSequence getContent() throws IllegalEditorStateException {
+    public CharSequence getContent() throws EditorFragmentNotAddedException {
         if (!isAdded()) {
-            throw new IllegalEditorStateException();
+            throw new EditorFragmentNotAddedException();
         }
 
         if (mSourceView != null && mSourceView.getVisibility() == View.VISIBLE) {
@@ -1022,22 +1019,22 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                         String videoPressId = ShortcodeUtils.getVideoPressIdFromShortCode(
                                 mediaFile.getVideoPressShortCode());
 
-                        mWebView.execJavaScriptFromString("ZSSEditor.insertVideo('" + safeMediaUrl + "', '" +
-                                posterUrl + "', '" + videoPressId +  "');");
+                        mWebView.execJavaScriptFromString("ZSSEditor.insertVideo('" + safeMediaUrl + "', '"
+                                + posterUrl + "', '" + videoPressId + "');");
                     } else {
-                        mWebView.execJavaScriptFromString("ZSSEditor.insertImage('" + safeMediaUrl + "', '" + mediaId +
-                                "');");
+                        mWebView.execJavaScriptFromString("ZSSEditor.insertImage('" + safeMediaUrl + "', '" + mediaId
+                                + "');");
                     }
                     mActionStartedAt = System.currentTimeMillis();
                 } else {
                     if (mediaFile.isVideo()) {
                         String posterUrl = Utils.escapeQuotes(StringUtils.notNullStr(mediaFile.getThumbnailURL()));
-                        mWebView.execJavaScriptFromString("ZSSEditor.insertLocalVideo(" + mediaId + ", '" + posterUrl +
-                                "');");
+                        mWebView.execJavaScriptFromString("ZSSEditor.insertLocalVideo(" + mediaId + ", '" + posterUrl
+                                + "');");
                         mUploadingMedia.put(mediaId, MediaType.VIDEO);
                     } else {
-                        mWebView.execJavaScriptFromString("ZSSEditor.insertLocalImage(" + mediaId + ", '" +
-                                safeMediaUrl + "');");
+                        mWebView.execJavaScriptFromString("ZSSEditor.insertLocalImage(" + mediaId + ", '"
+                                + safeMediaUrl + "');");
                         mUploadingMedia.put(mediaId, MediaType.IMAGE);
                     }
                 }
@@ -1062,8 +1059,8 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
             // share action and not via the format bar button)
             mWebView.execJavaScriptFromString("ZSSEditor.getField('zss_field_content').focus();");
 
-            mWebView.execJavaScriptFromString("ZSSEditor.insertGallery('" + mediaGallery.getIdsStr() + "', '" +
-                    mediaGallery.getType() + "', " + mediaGallery.getNumColumns() + ");");
+            mWebView.execJavaScriptFromString("ZSSEditor.insertGallery('" + mediaGallery.getIdsStr() + "', '"
+                    + mediaGallery.getType() + "', " + mediaGallery.getNumColumns() + ");");
         }
     }
 
@@ -1072,8 +1069,8 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
         mWebView.post(new Runnable() {
             @Override
             public void run() {
-                    mWebView.execJavaScriptFromString("ZSSEditor.setVideoPressLinks('" + videoId + "', '" +
-                        Utils.escapeQuotes(videoUrl) + "', '" + Utils.escapeQuotes(posterUrl) + "');");
+                    mWebView.execJavaScriptFromString("ZSSEditor.setVideoPressLinks('" + videoId + "', '"
+                        + Utils.escapeQuotes(videoUrl) + "', '" + Utils.escapeQuotes(posterUrl) + "');");
             }
         });
     }
@@ -1094,6 +1091,11 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
     }
 
     @Override
+    public void removeMedia(String mediaId) {
+        mWebView.execJavaScriptFromString("ZSSEditor.removeMedia('" + mediaId + "');");
+    }
+
+    @Override
     public Spanned getSpannedContent() {
         return null;
     }
@@ -1109,8 +1111,18 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
     }
 
     @Override
+    public void onMediaUploadReattached(String localId, float currentProgress) {
+        // no op (no reattachment in Visual Editor)
+    }
+
+    @Override
+    public void onMediaUploadRetry(String localId, MediaType mediaType) {
+        retryMediaUpload(localId, mediaType);
+    }
+
+    @Override
     public void onMediaUploadSucceeded(final String localMediaId, final MediaFile mediaFile) {
-        if(!isAdded()) {
+        if (!isAdded()) {
             return;
         }
 
@@ -1125,14 +1137,14 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                 String remoteUrl = Utils.escapeQuotes(mediaFile.getFileURL());
                 if (mimeType.contains("image")) {
                     String remoteMediaId = mediaFile.getMediaId();
-                    mWebView.execJavaScriptFromString("ZSSEditor.replaceLocalImageWithRemoteImage(" + localMediaId +
-                            ", '" + remoteMediaId + "', '" + remoteUrl + "');");
+                    mWebView.execJavaScriptFromString("ZSSEditor.replaceLocalImageWithRemoteImage(" + localMediaId
+                            + ", '" + remoteMediaId + "', '" + remoteUrl + "');");
                 } else if (mimeType.contains("video")) {
                     String posterUrl = Utils.escapeQuotes(StringUtils.notNullStr(mediaFile.getThumbnailURL()));
                     String videoPressId = ShortcodeUtils.getVideoPressIdFromShortCode(
                             mediaFile.getVideoPressShortCode());
-                    mWebView.execJavaScriptFromString("ZSSEditor.replaceLocalVideoWithRemoteVideo(" + localMediaId +
-                            ", '" + remoteUrl + "', '" + posterUrl + "', '" + videoPressId + "');");
+                    mWebView.execJavaScriptFromString("ZSSEditor.replaceLocalVideoWithRemoteVideo(" + localMediaId
+                            + ", '" + remoteUrl + "', '" + posterUrl + "', '" + videoPressId + "');");
                 }
             }
         });
@@ -1140,26 +1152,24 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
 
     @Override
     public void onMediaUploadProgress(final String mediaId, final float progress) {
-        if(!isAdded()) {
+        if (!isAdded()) {
             return;
         }
 
-        final MediaType mediaType = mUploadingMedia.get(mediaId);
-        if (mediaType != null) {
-            mWebView.post(new Runnable() {
-                @Override
-                public void run() {
-                    String progressString = String.format(Locale.US, "%.1f", progress);
-                    mWebView.execJavaScriptFromString("ZSSEditor.setProgressOnMedia(" + mediaId + ", " +
-                            progressString + ");");
-                }
-            });
-        }
+        mWebView.post(new Runnable() {
+            @Override
+            public void run() {
+                String progressString = String.format(Locale.US, "%.1f", progress);
+                mWebView.execJavaScriptFromString("ZSSEditor.setProgressOnMedia(" + mediaId + ", "
+                        + progressString + ");");
+            }
+        });
     }
 
     @Override
-    public void onMediaUploadFailed(final String mediaId, final String errorMessage) {
-        if(!isAdded()) {
+    public void onMediaUploadFailed(final String mediaId, final EditorFragmentAbstract.MediaType
+            mediaType, final String errorMessage) {
+        if (!isAdded()) {
             return;
         }
         mWebView.post(new Runnable() {
@@ -1185,7 +1195,7 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
 
     @Override
     public void onGalleryMediaUploadSucceeded(final long galleryId, long remoteMediaId, int remaining) {
-        if(!isAdded()) {
+        if (!isAdded()) {
             return;
         }
 
@@ -1198,10 +1208,10 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                 mWebView.post(new Runnable() {
                     @Override
                     public void run() {
-                        mWebView.execJavaScriptFromString("ZSSEditor.replacePlaceholderGallery('" + galleryId + "', '" +
-                                mUploadingMediaGallery.getIdsStr() + "', '" +
-                                mUploadingMediaGallery.getType() + "', " +
-                                mUploadingMediaGallery.getNumColumns() + ");");
+                        mWebView.execJavaScriptFromString("ZSSEditor.replacePlaceholderGallery('" + galleryId + "', '"
+                                + mUploadingMediaGallery.getIdsStr() + "', '"
+                                + mUploadingMediaGallery.getType() + "', "
+                                + mUploadingMediaGallery.getNumColumns() + ");");
                     }
                 });
             }
@@ -1222,10 +1232,10 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                 mWebView.execJavaScriptFromString("ZSSEditor.getField('zss_field_content').setMultiline('true');");
 
                 // Set title and content placeholder text
-                mWebView.execJavaScriptFromString("ZSSEditor.getField('zss_field_title').setPlaceholderText('" +
-                        Utils.escapeQuotes(mTitlePlaceholder) + "');");
-                mWebView.execJavaScriptFromString("ZSSEditor.getField('zss_field_content').setPlaceholderText('" +
-                        Utils.escapeQuotes(mContentPlaceholder) + "');");
+                mWebView.execJavaScriptFromString("ZSSEditor.getField('zss_field_title').setPlaceholderText('"
+                        + Utils.escapeQuotes(mTitlePlaceholder) + "');");
+                mWebView.execJavaScriptFromString("ZSSEditor.getField('zss_field_content').setPlaceholderText('"
+                        + Utils.escapeQuotes(mContentPlaceholder) + "');");
 
                 // Load title and content into ZSSEditor
                 updateVisualEditorFields();
@@ -1281,7 +1291,7 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                 }
 
                 // Show the keyboard
-                ((InputMethodManager)getActivity().getSystemService(Context.INPUT_METHOD_SERVICE))
+                ((InputMethodManager) getActivity().getSystemService(Context.INPUT_METHOD_SERVICE))
                         .showSoftInput(mWebView, InputMethodManager.SHOW_IMPLICIT);
 
                 ProfilingUtils.split("EditorFragment.onDomLoaded completed");
@@ -1324,19 +1334,25 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
         });
     }
 
-    public void onMediaTapped(final String mediaId, final MediaType mediaType, final JSONObject meta, String uploadStatus) {
+    public void onMediaTapped(final String mediaId, final MediaType mediaType, final JSONObject meta,
+                              String uploadStatus) {
         if (mediaType == null || !isAdded()) {
             return;
         }
 
         switch (uploadStatus) {
             case ATTR_STATUS_UPLOADING:
+                if (TextUtils.isEmpty(mediaId) || StringUtils.stringToInt(mediaId) <= 0) {
+                    return;
+                }
+
                 // Display 'cancel upload' dialog
                 AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
                 builder.setTitle(getString(R.string.stop_upload_dialog_title));
-                builder.setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+                builder.setPositiveButton(
+                        R.string.stop_upload_dialog_button_yes, new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface dialog, int id) {
-                        mEditorFragmentListener.onMediaUploadCancelClicked(mediaId, true);
+                        mEditorFragmentListener.onMediaUploadCancelClicked(mediaId);
 
                         mWebView.post(new Runnable() {
                             @Override
@@ -1355,7 +1371,7 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                     }
                 });
 
-                builder.setNegativeButton(getString(R.string.cancel), new DialogInterface.OnClickListener() {
+                builder.setNegativeButton(R.string.stop_upload_dialog_button_no, new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface dialog, int id) {
                         dialog.dismiss();
                     }
@@ -1365,25 +1381,15 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
                 dialog.show();
                 break;
             case ATTR_STATUS_FAILED:
-                // Retry media upload
-                mEditorFragmentListener.onMediaRetryClicked(mediaId);
+                if (TextUtils.isEmpty(mediaId) || StringUtils.stringToInt(mediaId) <= 0) {
+                    return;
+                }
 
-                mWebView.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        switch (mediaType) {
-                            case IMAGE:
-                                mWebView.execJavaScriptFromString("ZSSEditor.unmarkImageUploadFailed(" + mediaId
-                                        + ");");
-                                break;
-                            case VIDEO:
-                                mWebView.execJavaScriptFromString("ZSSEditor.unmarkVideoUploadFailed(" + mediaId
-                                        + ");");
-                        }
-                        mFailedMediaIds.remove(mediaId);
-                        mUploadingMedia.put(mediaId, mediaType);
-                    }
-                });
+                // Retry media upload
+                boolean successfullyRetried = mEditorFragmentListener.onMediaRetryClicked(mediaId);
+                if (successfullyRetried) {
+                    retryMediaUpload(mediaId, mediaType);
+                }
                 break;
             default:
                 if (!mediaType.equals(MediaType.IMAGE)) {
@@ -1441,6 +1447,25 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
         }
     }
 
+    private void retryMediaUpload(final String mediaId, final MediaType mediaType) {
+        mWebView.post(new Runnable() {
+            @Override
+            public void run() {
+                switch (mediaType) {
+                    case IMAGE:
+                        mWebView.execJavaScriptFromString("ZSSEditor.unmarkImageUploadFailed(" + mediaId
+                                + ");");
+                        break;
+                    case VIDEO:
+                        mWebView.execJavaScriptFromString("ZSSEditor.unmarkVideoUploadFailed(" + mediaId
+                                + ");");
+                }
+                mFailedMediaIds.remove(mediaId);
+                mUploadingMedia.put(mediaId, mediaType);
+            }
+        });
+    }
+
     public void onLinkTapped(String url, String title) {
         LinkDialogFragment linkDialogFragment = new LinkDialogFragment();
         linkDialogFragment.setTargetFragment(this, LinkDialogFragment.LINK_DIALOG_REQUEST_CODE_UPDATE);
@@ -1458,7 +1483,7 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
     public void onMediaRemoved(String mediaId) {
         mUploadingMedia.remove(mediaId);
         mFailedMediaIds.remove(mediaId);
-        mEditorFragmentListener.onMediaUploadCancelClicked(mediaId, true);
+        mEditorFragmentListener.onMediaUploadCancelClicked(mediaId);
     }
 
     @Override
@@ -1514,17 +1539,16 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
     }
 
     private void updateVisualEditorFields() {
-        mWebView.execJavaScriptFromString("ZSSEditor.getField('zss_field_title').setPlainText('" +
-                Utils.escapeHtml(mTitle) + "');");
-        mWebView.execJavaScriptFromString("ZSSEditor.getField('zss_field_content').setHTML('" +
-                Utils.escapeHtml(mContentHtml) + "');");
+        mWebView.execJavaScriptFromString("ZSSEditor.getField('zss_field_title').setPlainText('"
+                + Utils.escapeHtml(mTitle) + "');");
+        mWebView.execJavaScriptFromString("ZSSEditor.getField('zss_field_content').setHTML('"
+                + Utils.escapeHtml(mContentHtml) + "');");
     }
 
     /**
      * Hide the action bar if needed.
      */
     private void hideActionBarIfNeeded() {
-
         ActionBar actionBar = getActionBar();
         if (actionBar != null
                 && !isHardwareKeyboardPresent()
@@ -1539,7 +1563,6 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
      * Show the action bar if needed.
      */
     private void showActionBarIfNeeded() {
-
         ActionBar actionBar = getActionBar();
         if (actionBar != null && !actionBar.isShowing()) {
             actionBar.show();
@@ -1560,7 +1583,7 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
 
     void updateFormatBarEnabledState(boolean enabled) {
         float alpha = (enabled ? TOOLBAR_ALPHA_ENABLED : TOOLBAR_ALPHA_DISABLED);
-        for(ToggleButton button : mTagToggleButtonMap.values()) {
+        for (ToggleButton button : mTagToggleButtonMap.values()) {
             button.setEnabled(enabled);
             button.setAlpha(alpha);
         }
@@ -1593,9 +1616,9 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
         } else if (id == R.id.format_bar_button_italic) {
             mEditorFragmentListener.onTrackableEvent(TrackableEvent.ITALIC_BUTTON_TAPPED);
         } else if (id == R.id.format_bar_button_ol) {
-            mEditorFragmentListener.onTrackableEvent(TrackableEvent.OL_BUTTON_TAPPED);
+            mEditorFragmentListener.onTrackableEvent(TrackableEvent.LIST_ORDERED_BUTTON_TAPPED);
         } else if (id == R.id.format_bar_button_ul) {
-            mEditorFragmentListener.onTrackableEvent(TrackableEvent.UL_BUTTON_TAPPED);
+            mEditorFragmentListener.onTrackableEvent(TrackableEvent.LIST_UNORDERED_BUTTON_TAPPED);
         } else if (id == R.id.format_bar_button_quote) {
             mEditorFragmentListener.onTrackableEvent(TrackableEvent.BLOCKQUOTE_BUTTON_TAPPED);
         } else if (id == R.id.format_bar_button_strikethrough) {
@@ -1670,5 +1693,38 @@ public class EditorFragment extends EditorFragmentAbstract implements View.OnCli
     @Override
     public void onActionFinished() {
         mActionStartedAt = -1;
+    }
+
+    public static String replaceMediaFileWithUrl(@NonNull String postContent, MediaFile mediaFile) {
+        if (mediaFile == null) {
+            return postContent;
+        }
+
+        if (!mediaFile.isVideo()) {
+            String remoteUrl = Utils.escapeQuotes(mediaFile.getFileURL());
+            String remoteMediaId = mediaFile.getMediaId();
+            String replacementHtml = String.format(Locale.US, UPLOADED_IMAGE_TEMPLATE, remoteUrl, remoteUrl,
+                    remoteMediaId, mediaFile.getWidth(), mediaFile.getHeight());
+
+            Pattern pattern = Pattern.compile("<span id=\"img_container_" + mediaFile.getId() + "\".*?<img.*?></span>");
+            Matcher matcher = pattern.matcher(postContent);
+            postContent = matcher.replaceAll(replacementHtml);
+        } else {
+            String remoteUrl = Utils.escapeQuotes(mediaFile.getFileURL());
+            String posterUrl = Utils.escapeQuotes(StringUtils.notNullStr(mediaFile.getThumbnailURL()));
+            String replacementShortcode;
+            if (TextUtils.isEmpty(mediaFile.getVideoPressShortCode())) {
+                replacementShortcode = "[video src=\"" + remoteUrl + "\" poster=\"" + posterUrl + "\"][/video]";
+            } else {
+                replacementShortcode = mediaFile.getVideoPressShortCode();
+            }
+
+            Pattern pattern = Pattern.compile("<span id=\"video_container_"
+                                              + mediaFile.getId() + "\".*?<img.*?></span>");
+            Matcher matcher = pattern.matcher(postContent);
+            postContent = matcher.replaceAll(replacementShortcode);
+        }
+
+        return postContent;
     }
 }

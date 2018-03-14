@@ -8,39 +8,26 @@ import java.util.List;
 
 public class NotificationEvents {
     public static class NotificationsChanged {
-        final public boolean hasUnseenNotes;
-        public NotificationsChanged() {
+        public final boolean hasUnseenNotes;
+        NotificationsChanged() {
             this.hasUnseenNotes = false;
         }
         public NotificationsChanged(boolean hasUnseenNotes) {
             this.hasUnseenNotes = hasUnseenNotes;
         }
     }
-    public static class NoteModerationFailed {}
-    public static class NoteModerationStatusChanged {
-        final boolean isModerating;
-        final String noteId;
-        public NoteModerationStatusChanged(String noteId, boolean isModerating) {
-            this.noteId = noteId;
-            this.isModerating = isModerating;
-        }
-    }
-    public static class NoteLikeStatusChanged {
-        final String noteId;
-        public NoteLikeStatusChanged(String noteId) {
+
+    public static class NoteLikeOrModerationStatusChanged {
+        public final String noteId;
+
+        public NoteLikeOrModerationStatusChanged(String noteId) {
             this.noteId = noteId;
         }
     }
-    public static class NoteVisibilityChanged {
-        final boolean isHidden;
-        final String noteId;
-        public NoteVisibilityChanged(String noteId, boolean isHidden) {
-            this.noteId = noteId;
-            this.isHidden = isHidden;
-        }
-    }
+
     public static class NotificationsSettingsStatusChanged {
         final String mMessage;
+
         public NotificationsSettingsStatusChanged(String message) {
             mMessage = message;
         }
@@ -49,24 +36,30 @@ public class NotificationEvents {
             return mMessage;
         }
     }
+
     public static class NotificationsUnseenStatus {
-        final public boolean hasUnseenNotes;
+        public final boolean hasUnseenNotes;
+
         public NotificationsUnseenStatus(boolean hasUnseenNotes) {
             this.hasUnseenNotes = hasUnseenNotes;
         }
     }
+
     public static class NotificationsRefreshCompleted {
-        final List<Note> notes;
+        public final List<Note> notes;
+
         public NotificationsRefreshCompleted(List<Note> notes) {
             this.notes = notes;
         }
     }
+
     public static class NotificationsRefreshError {
-        VolleyError error;
+        public VolleyError error;
+
         public NotificationsRefreshError(VolleyError error) {
             this.error = error;
         }
-        public NotificationsRefreshError() {
-        }
+
+        public NotificationsRefreshError() {}
     }
 }

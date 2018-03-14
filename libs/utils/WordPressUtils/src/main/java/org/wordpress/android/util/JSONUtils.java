@@ -2,6 +2,7 @@ package org.wordpress.android.util;
 
 import android.text.TextUtils;
 
+import org.apache.commons.text.StringEscapeUtils;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -10,11 +11,11 @@ import org.wordpress.android.util.AppLog.T;
 import java.util.ArrayList;
 
 public class JSONUtils {
-    private static String QUERY_SEPERATOR = ".";
-    private static String QUERY_ARRAY_INDEX_START = "[";
-    private static String QUERY_ARRAY_INDEX_END = "]";
-    private static String QUERY_ARRAY_FIRST = "first";
-    private static String QUERY_ARRAY_LAST = "last";
+    private static final String QUERY_SEPERATOR = ".";
+    private static final String QUERY_ARRAY_INDEX_START = "[";
+    private static final String QUERY_ARRAY_INDEX_END = "]";
+    private static final String QUERY_ARRAY_FIRST = "first";
+    private static final String QUERY_ARRAY_LAST = "last";
 
     private static final String JSON_NULL_STR = "null";
     private static final String TAG = "JSONUtils";
@@ -44,8 +45,9 @@ public class JSONUtils {
                 if (result.getClass().isAssignableFrom(defaultObject.getClass())) {
                     return (U) result;
                 } else {
-                    AppLog.w(T.UTILS, String.format("The returned object type %s is not assignable to the type %s. Using default!",
-                            result.getClass(),defaultObject.getClass()));
+                    AppLog.w(T.UTILS, String.format(
+                            "The returned object type %s is not assignable to the type %s. Using default!",
+                            result.getClass(), defaultObject.getClass()));
                     return defaultObject;
                 }
             } catch (java.lang.ClassCastException e) {
@@ -76,8 +78,9 @@ public class JSONUtils {
             if (result.getClass().isAssignableFrom(defaultObject.getClass())) {
                 return (U) result;
             } else {
-                AppLog.w(T.UTILS, String.format("The returned object type %s is not assignable to the type %s. Using default!",
-                        result.getClass(),defaultObject.getClass()));
+                AppLog.w(T.UTILS,
+                         String.format("The returned object type %s is not assignable to the type %s. Using default!",
+                                       result.getClass(), defaultObject.getClass()));
                 return defaultObject;
             }
         } catch (java.lang.ClassCastException e) {
@@ -139,12 +142,13 @@ public class JSONUtils {
             if (result.getClass().isAssignableFrom(defaultObject.getClass())) {
                 return (U) result;
             } else {
-                AppLog.w(T.UTILS, String.format("The returned object type %s is not assignable to the type %s. Using default!",
-                        result.getClass(),defaultObject.getClass()));
+                AppLog.w(T.UTILS,
+                         String.format("The returned object type %s is not assignable to the type %s. Using default!",
+                                       result.getClass(), defaultObject.getClass()));
                 return defaultObject;
             }
         } catch (java.lang.ClassCastException e) {
-            AppLog.e(T.UTILS, "Unable to cast the object to "+defaultObject.getClass().getName(), e);
+            AppLog.e(T.UTILS, "Unable to cast the object to " + defaultObject.getClass().getName(), e);
             return defaultObject;
         } catch (JSONException e) {
             return defaultObject;
@@ -185,8 +189,9 @@ public class JSONUtils {
     public static String getString(JSONObject json, String name) {
         String value = json.optString(name);
         // return empty string for "null"
-        if (JSON_NULL_STR.equals(value))
+        if (JSON_NULL_STR.equals(value)) {
             return "";
+        }
         return value;
     }
 
@@ -195,23 +200,27 @@ public class JSONUtils {
      */
     public static String getStringDecoded(JSONObject json, String name) {
         String value = getString(json, name);
-        return HtmlUtils.fastUnescapeHtml(value);
+        return StringEscapeUtils.unescapeHtml4(value);
     }
 
     /*
-     * replacement for JSONObject.optBoolean()  - optBoolean() only checks for "true" and "false",
+     * replacement for JSONObject.optBoolean() - optBoolean() only checks for "true" and "false",
      * but our API sometimes uses "0" to denote false
      */
     public static boolean getBool(JSONObject json, String name) {
         String value = getString(json, name);
-        if (TextUtils.isEmpty(value))
+        if (TextUtils.isEmpty(value)) {
             return false;
-        if (value.equals("0"))
+        }
+        if (value.equals("0")) {
             return false;
-        if (value.equalsIgnoreCase("false"))
+        }
+        if (value.equalsIgnoreCase("false")) {
             return false;
-        if (value.equalsIgnoreCase("no"))
+        }
+        if (value.equalsIgnoreCase("no")) {
             return false;
+        }
         return true;
     }
 
@@ -219,7 +228,7 @@ public class JSONUtils {
      * returns the JSONObject child of the passed parent that matches the passed query
      * this is basically an "optJSONObject" that supports nested queries, for example:
      *
-     *  getJSONChild("meta/data/site")
+     * getJSONChild("meta/data/site")
      *
      * would find this:
      *
@@ -233,8 +242,9 @@ public class JSONUtils {
      *   }
      */
     public static JSONObject getJSONChild(final JSONObject jsonParent, final String query) {
-        if (jsonParent == null || TextUtils.isEmpty(query))
+        if (jsonParent == null || TextUtils.isEmpty(query)) {
             return null;
+        }
         String[] names = query.split("/");
         JSONObject jsonChild = null;
         for (int i = 0; i < names.length; i++) {
@@ -243,8 +253,9 @@ public class JSONUtils {
             } else {
                 jsonChild = jsonChild.optJSONObject(names[i]);
             }
-            if (jsonChild == null)
+            if (jsonChild == null) {
                 return null;
+            }
         }
         return jsonChild;
     }

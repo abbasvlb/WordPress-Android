@@ -21,6 +21,7 @@ import com.google.android.gms.common.api.GoogleApiClient.OnConnectionFailedListe
 import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.common.api.Status;
 
+import org.wordpress.android.ui.RequestCodes;
 import org.wordpress.android.util.AppLog;
 import org.wordpress.android.util.AppLog.T;
 
@@ -32,14 +33,16 @@ public class SmartLockHelper {
 
     public interface Callback {
         void onCredentialRetrieved(Credential credential);
+
+        void onCredentialsUnavailable();
     }
 
     public SmartLockHelper(@NonNull FragmentActivity activity) {
         if (activity instanceof OnConnectionFailedListener && activity instanceof ConnectionCallbacks) {
             mActivity = new WeakReference<>(activity);
         } else {
-            throw new RuntimeException("SmartLockHelper constructor needs an activity that " +
-                    "implements OnConnectionFailedListener and ConnectionCallbacks");
+            throw new RuntimeException("SmartLockHelper constructor needs an activity that "
+                                       + "implements OnConnectionFailedListener and ConnectionCallbacks");
         }
     }
 
@@ -55,16 +58,17 @@ public class SmartLockHelper {
         return null;
     }
 
-    public void initSmartLockForPasswords() {
+    public boolean initSmartLockForPasswords() {
         FragmentActivity activity = getActivityAndCheckAvailability();
         if (activity == null) {
-            return;
+            return false;
         }
         mCredentialsClient = new GoogleApiClient.Builder(activity)
                 .addConnectionCallbacks((ConnectionCallbacks) activity)
                 .enableAutoManage(activity, (OnConnectionFailedListener) activity)
                 .addApi(Auth.CREDENTIALS_API)
                 .build();
+        return true;
     }
 
     public void smartLockAutoFill(@NonNull final Callback callback) {
@@ -91,13 +95,17 @@ public class SmartLockHelper {
                                         return;
                                     }
                                     // Prompt the user to choose a saved credential
-                                    status.startResolutionForResult(activity, SignInActivity.SMART_LOCK_READ);
+                                    status.startResolutionForResult(activity, RequestCodes.SMART_LOCK_READ);
                                 } catch (IntentSender.SendIntentException e) {
                                     AppLog.d(T.NUX, "SmartLock: Failed to send resolution for credential request");
+
+                                    callback.onCredentialsUnavailable();
                                 }
                             } else {
                                 // The user must create an account or log in manually.
                                 AppLog.d(T.NUX, "SmartLock: Unsuccessful credential request.");
+
+                                callback.onCredentialsUnavailable();
                             }
                         }
                     }
@@ -120,7 +128,8 @@ public class SmartLockHelper {
             return;
         }
         Credential credential = new Credential.Builder(username).setPassword(password)
-                .setName(displayName).setProfilePictureUri(profilePicture).build();
+                                                                .setName(displayName)
+                                                                .setProfilePictureUri(profilePicture).build();
         Auth.CredentialsApi.save(mCredentialsClient, credential).setResultCallback(
                 new ResultCallback<Status>() {
                     @Override
@@ -132,7 +141,7 @@ public class SmartLockHelper {
                                     return;
                                 }
                                 // This prompt the user to resolve the save request
-                                status.startResolutionForResult(activity, SignInActivity.SMART_LOCK_SAVE);
+                                status.startResolutionForResult(activity, RequestCodes.SMART_LOCK_SAVE);
                             } catch (IntentSender.SendIntentException e) {
                                 // Could not resolve the request
                             }
@@ -153,8 +162,12 @@ public class SmartLockHelper {
                     @Override
                     public void onResult(@NonNull Status status) {
                         AppLog.i(T.NUX, status.isSuccess() ? "SmartLock: credentials deleted for username: " + username
-                                : "SmartLock: Credentials not deleted for username: " + username );
+                                : "SmartLock: Credentials not deleted for username: " + username);
                     }
                 });
+    }
+
+    public void disableAutoSignIn() {
+        Auth.CredentialsApi.disableAutoSignIn(mCredentialsClient);
     }
 }

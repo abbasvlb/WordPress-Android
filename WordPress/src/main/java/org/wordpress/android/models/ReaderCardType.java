@@ -34,10 +34,11 @@ public enum ReaderCardType {
             return VIDEO;
         }
 
-        // if this post has enough usable images to fill the stream's thumbnail strip, treat it
-        // as a gallery
-        if (post.hasImages()
-                && new ReaderImageScanner(post.getText(), post.isPrivate)
+        // if this post doesn't have a featured image but has enough usable images to fill the
+        // stream's thumbnail strip, treat it as a gallery
+        if (!post.hasFeaturedImage()
+            && post.hasImages()
+            && new ReaderImageScanner(post.getText(), post.isPrivate)
                     .hasUsableImageCount(ReaderThumbnailStrip.IMAGE_COUNT, ReaderConstants.MIN_GALLERY_IMAGE_WIDTH)) {
             return GALLERY;
         }
@@ -86,5 +87,4 @@ public enum ReaderCardType {
         }
         return DEFAULT;
     }
-
 }

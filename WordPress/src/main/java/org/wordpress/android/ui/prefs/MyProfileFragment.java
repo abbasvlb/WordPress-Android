@@ -19,7 +19,6 @@ import org.wordpress.android.fluxc.store.AccountStore;
 import org.wordpress.android.fluxc.store.AccountStore.OnAccountChanged;
 import org.wordpress.android.fluxc.store.AccountStore.PushAccountSettingsPayload;
 import org.wordpress.android.util.NetworkUtils;
-import org.wordpress.android.util.StringUtils;
 import org.wordpress.android.util.ToastUtils;
 import org.wordpress.android.widgets.WPTextView;
 
@@ -28,7 +27,7 @@ import java.util.HashMap;
 import javax.inject.Inject;
 
 public class MyProfileFragment extends Fragment implements ProfileInputDialogFragment.Callback {
-    private final String DIALOG_TAG = "DIALOG";
+    private static final String DIALOG_TAG = "DIALOG";
 
     private WPTextView mFirstName;
     private WPTextView mLastName;
@@ -108,13 +107,15 @@ public class MyProfileFragment extends Fragment implements ProfileInputDialogFra
     }
 
     private void refreshDetails() {
-        if (!isAdded()) return;
+        if (!isAdded()) {
+            return;
+        }
 
         AccountModel account = mAccountStore.getAccount();
-        updateLabel(mFirstName, account != null ? StringUtils.unescapeHTML(account.getFirstName()) : null);
-        updateLabel(mLastName, account != null ? StringUtils.unescapeHTML(account.getLastName()) : null);
-        updateLabel(mDisplayName, account != null ? StringUtils.unescapeHTML(account.getDisplayName()) : null);
-        updateLabel(mAboutMe, account != null ? StringUtils.unescapeHTML(account.getAboutMe()) : null);
+        updateLabel(mFirstName, account != null ? account.getFirstName() : null);
+        updateLabel(mLastName, account != null ? account.getLastName() : null);
+        updateLabel(mDisplayName, account != null ? account.getDisplayName() : null);
+        updateLabel(mAboutMe, account != null ? account.getAboutMe() : null);
     }
 
     private void updateLabel(WPTextView textView, String text) {
@@ -125,8 +126,7 @@ public class MyProfileFragment extends Fragment implements ProfileInputDialogFra
             } else {
                 textView.setVisibility(View.GONE);
             }
-        }
-        else {
+        } else {
             textView.setVisibility(View.VISIBLE);
         }
     }
@@ -140,7 +140,10 @@ public class MyProfileFragment extends Fragment implements ProfileInputDialogFra
             @Override
             public void onClick(View v) {
                 ProfileInputDialogFragment inputDialog = ProfileInputDialogFragment.newInstance(dialogTitle,
-                        textView.getText().toString(), hint, isMultiline, textView.getId());
+                                                                                                textView.getText()
+                                                                                                        .toString(),
+                                                                                                hint, isMultiline,
+                                                                                                textView.getId());
                 inputDialog.setTargetFragment(MyProfileFragment.this, 0);
                 inputDialog.show(getFragmentManager(), DIALOG_TAG);
             }
@@ -171,7 +174,9 @@ public class MyProfileFragment extends Fragment implements ProfileInputDialogFra
     @Override
     public void onSuccessfulInput(String input, int callbackId) {
         View rootView = getView();
-        if (rootView == null) return;
+        if (rootView == null) {
+            return;
+        }
 
         if (!NetworkUtils.isNetworkAvailable(getActivity())) {
             ToastUtils.showToast(getActivity(), R.string.error_post_my_profile_no_connection);
